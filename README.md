@@ -13,10 +13,10 @@
 - [GitHub Repo](https://github.com/ChosenOneWyrd/DigiviceColorModifier)
 
 ### Which digimon can be added? Any for which spritesheets exist! 
-- [Vital Bracelet Digimon List](https://humulos.com/digimon/vbbe/)
-- [Vital Bracelet Dimensional Digimon List](https://humulos.com/digimon/vbdm/)
-- [Ranked Vital Bracelet Digimon](https://humulos.com/digimon/vbbe/ranked/)
-- [Ranked Dimensional Digimon](https://humulos.com/digimon/vbdm/ranked/)
+- [Vital Bracelet BE Digimon List](https://humulos.com/digimon/vbbe/)
+- [Vital Bracelet DM Digimon List](https://humulos.com/digimon/vbdm/)
+- [Ranked Vital Bracelet BE Digimon](https://humulos.com/digimon/vbbe/ranked/)
+- [Ranked Vital Bracelet DM Digimon](https://humulos.com/digimon/vbdm/ranked/)
 
 ### Where to Get Sprites of Other Digimon
 - [Sirec DIM Archive (Reddit)](https://www.reddit.com/r/DigimonVitalBracelet/comments/1c2xm2y/sirec_dim_archive/)
@@ -122,7 +122,7 @@ digimon_tool_gui.py - This is the main program that combines all other .py files
 
 update_palette.py - This program updates colors of old images present inside D3.bin to the colors from the new images present inside the input_sprites folder. The command to run it is:
  
-python update_palette.py "D3.bin" --input-dir ./input_sprites --out D3.bin --set-sprite-bank
+		python update_palette.py "D3.bin" --input-dir ./input_sprites --out D3.bin --set-sprite-bank
 
 replace_sprite.py - This program replaces the old images present inside D3.bin with the new images present inside the input_sprites folder:
 
@@ -130,7 +130,7 @@ replace_sprite.py - This program replaces the old images present inside D3.bin w
 
 This program extracts sprites from D3.bin. We will use this to verify whether our new images were updated properly in D3.bin or not. The extracted sprites are sent to sprites_out folder.
  
-python extract_sprites.py "D3.bin" --out sprites_out --start 0 --end 4 --banks 0-0
+		python extract_sprites.py "D3.bin" --out sprites_out --start 0 --end 4 --banks 0-0
  
 --start 0 --end 4 means that this command will extract images from index 0 till index 4 (excluding 4) from the D3.bin file. If you don’t specify start and end, it will extract all sprites from D3.bin, but you have those anyway in the zip file I included.
 
