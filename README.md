@@ -109,5 +109,84 @@ Find DigiviceColorModifier.exe in the zip I shared and double click open it.
 30. Again, before you change anything, READ THE RULES! 
 31.Let’s change Angewomon name, stage and power to Jewelbeemon. Be careful of the name, stage, power instructions you read previously.
 
+### RUNNING THE SOURCE CODE LOCALLY (.py)
+1. Install Python 3.11.9 or lower.<br/>
+2. Higher python versions are unsupported.<br/>Python 3.11.9 download link: https://www.python.org/downloads/release/python-3119/<br/>
+3. Clone the repo: https://github.com/ChosenOneWyrd/DigiviceColorModifier  or just use the src folder of the zip in I shared in:<br/>https://drive.google.com/drive/folders/1HYOpG9URBFviwJ7M_MmHEK0l_AJfyFz5?usp=sharing 
+4. Open a terminal. Go to the folder that has requirements.txt and run pip install -r requirements.txt<br/><br/>
+
+#### Running the programs:<br/><br/>
+digimon_tool_gui.py - This is the main program that combines all other .py files and gives a gui. Command:
+	
+		python digimon_tool_gui.py
+
+update_palette.py - This program updates colors of old images present inside D3.bin to the colors from the new images present inside the input_sprites folder. The command to run it is:
+ 
+python update_palette.py "D3.bin" --input-dir ./input_sprites --out D3.bin --set-sprite-bank
+
+replace_sprite.py - This program replaces the old images present inside D3.bin with the new images present inside the input_sprites folder:
+
+		python replace_sprite.py "D3.bin" --input-dir ./input_sprites --out D3.bin
+
+This program extracts sprites from D3.bin. We will use this to verify whether our new images were updated properly in D3.bin or not. The extracted sprites are sent to sprites_out folder.
+ 
+python extract_sprites.py "D3.bin" --out sprites_out --start 0 --end 4 --banks 0-0
+ 
+--start 0 --end 4 means that this command will extract images from index 0 till index 4 (excluding 4) from the D3.bin file. If you don’t specify start and end, it will extract all sprites from D3.bin, but you have those anyway in the zip file I included.
+
+export_d3_data.py - Exports the digimon names, powers, stages from D3.bin to data.csv:
+
+		python export_d3_data.py D3.bin replace_map.csv data.csv
+
+import_d3_data.py - Imports the digimon names, powers, stages from data.csv to D3.bin:
+
+		python import_d3_data.py D3.bin data.csv replace_map.csv --out D3.bin
+
+export_digivice_data.py - Exports the digimon names, powers, stages from Digivice.bin to data.csv:
+
+		python export_digivice_data.py Digivice.bin replace_map.csv data.csv
+
+import_digivice_data.py - Imports the digimon names, powers, stages from data.csv to D3.bin:
+
+		python import_digivice_data.py Digivice.bin data.csv replace_map.csv --out Digivice.bin
+      
+### BUILDING THE SOURCE CODE INTO .exe or .app
+1. Create a virtual environment using:<br/>
+   python -m venv venv<br/><br/>
+
+2. Activate the virtual environment you created:<br/>
+	Windows:<br/>
+	venv\Scripts\activate<br/><br/>
+
+	Mac:<br/>
+	source venv/bin/activate<br/><br/>
+
+3. Run pip install -r requirements.txt<br/>
+4. Run pyinstaller to package the file<br/><br/>
+	
+	Windows:
+
+	pyinstaller --name "DigiviceColorModifier" --onefile --noconsole --icon "icons\digivice.ico" --add-data "kindness.gif;." --add-data "replace_map.csv;." --add-data "export_sprites.py;." --add-data "update_palette.py;." --add-data "replace_sprites.py;." --add-data "export_d3_data.py;." --add-data "export_digivice_data.py;." --add-data "import_d3_data.py;." --add-data "import_digivice_data.py;." digimon_tool_gui.py
+
+	Mac:
+
+   pyinstaller \
+     --name "DigiviceColorModifier" \
+     --onefile \
+     --windowed \
+     --icon "icons/digivice.icns" \
+     --add-data "kindness.gif:." \
+     --add-data "replace_map.csv:." \
+     --add-data "export_sprites.py:." \
+     --add-data "update_palette.py:." \
+     --add-data "replace_sprites.py:." \
+     --add-data "export_d3_data.py:." \
+     --add-data "export_digivice_data.py:." \
+     --add-data "import_d3_data.py:." \
+     --add-data "import_digivice_data.py:." \
+     digimon_tool_gui.py  
+
+
+  <br/>The app will be generated and stored in the dist folder.
 
 
