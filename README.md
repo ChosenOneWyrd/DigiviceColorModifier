@@ -188,5 +188,3 @@ import_digivice_data.py - Imports the digimon names, powers, stages from data.cs
 
 
   <br/>The app will be generated and stored in the dist folder.
-
-
