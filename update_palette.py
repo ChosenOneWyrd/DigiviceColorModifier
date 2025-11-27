@@ -191,7 +191,42 @@ def update_one(data, pkg_off, offs, images, sprites, image_index, subimage, png_
             raise SystemExit(f"bank {bank} out of range 0..15")
 
     inverted = (alpha_mode == "inverted")
-    words, png_size = build_palette_from_png(png_path, colors, inverted)
+    # ---------- NEW: Auto-reduce PNG to device-required color count ----------
+    # Load original PNG
+    raw_png = Image.open(png_path).convert("RGBA")
+
+    # Preserve alpha
+    alpha = raw_png.getchannel("A")
+
+    # Quantize RGB only
+    reduced = raw_png.convert("RGB").quantize(
+        colors=colors,
+        method=Image.MEDIANCUT
+    ).convert("RGBA")
+
+    # Restore alpha channel
+    reduced.putalpha(alpha)
+
+    # Now extract colors from reduced image instead of original PNG
+    pix = list(reduced.getdata())
+    unique = []
+    seen = set()
+    for (r,g,b,a) in pix:
+        key = (r,g,b,a>=128)
+        if key not in seen:
+            seen.add(key)
+            unique.append((r,g,b,255 if key[3] else 0))
+        if len(unique) >= colors:
+            break
+
+    # pad if fewer than needed
+    while len(unique) < colors:
+        unique.append(unique[-1])
+
+    # convert to ARGB1555 palette words
+    words = [argb_to_1555(r,g,b,a, inverted=inverted) for (r,g,b,a) in unique]
+
+    png_size = reduced.size
 
     bank_off = base_index + bank*step
     pal_bytes_off = pkg_off + palettes_off + bank_off*2
