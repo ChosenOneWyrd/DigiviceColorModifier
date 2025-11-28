@@ -184,6 +184,10 @@ import_digivice_data.py - Imports the digimon names, powers, stages from data.cs
      --add-data "export_digivice_data.py:." \
      --add-data "import_d3_data.py:." \
      --add-data "import_digivice_data.py:." \
+     --add-data "import_d3_npc_names.py:." \
+     --add-data "export_d3_npc_names.py:." \
+     --add-data "import_digivice_npc_names.py:." \
+     --add-data "export_digivice_npc_names.py:." \
      digimon_tool_gui.py  
 
 
