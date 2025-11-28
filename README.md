@@ -213,6 +213,7 @@ import_digivice_npc_names.py - Imports baby digimon names, digimental names, map
      --add-data "export_d3_npc_names.py:." \
      --add-data "import_digivice_npc_names.py:." \
      --add-data "export_digivice_npc_names.py:." \
-     digimon_tool_gui.py
+     digimon_tool_gui.py  
+
 
   <br/>The app will be generated and stored in the dist folder.

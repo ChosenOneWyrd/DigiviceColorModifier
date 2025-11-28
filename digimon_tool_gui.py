@@ -1120,7 +1120,7 @@ class DigimonStatsTab(QtWidgets.QWidget):
         self.export_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
 
-        dlg = BusyDialog("Export data to CSV", "Please wait...\nThis may take a while.", self)
+        dlg = BusyDialog("Export data to CSV", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
@@ -1191,7 +1191,7 @@ class DigimonStatsTab(QtWidgets.QWidget):
         self.export_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
 
-        dlg = BusyDialog("Import data from CSV", "Please wait...\nThis may take a while.", self)
+        dlg = BusyDialog("Import data from CSV", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
@@ -1248,7 +1248,7 @@ class DigimonStatsTab(QtWidgets.QWidget):
         desc = "Extract Digimon stats to table"
         self.status_label.setText("Extracting Digimon stats to load into table...")
 
-        dlg = BusyDialog("Load Data into Table", "Please wait...\nThis may take a while.", self)
+        dlg = BusyDialog("Load Data into Table", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
@@ -1476,7 +1476,7 @@ class DigimonStatsTab(QtWidgets.QWidget):
         self.status_label.setText("Applying edits to BIN...")
         self.save_edits_btn.setEnabled(False)
 
-        dlg = BusyDialog("Save Edits to BIN", "Please wait...\nThis may take a while.", self)
+        dlg = BusyDialog("Save Edits to BIN", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
@@ -1526,6 +1526,275 @@ class DigimonStatsTab(QtWidgets.QWidget):
         thread.start()
         dlg.exec()
 
+# ----------------- NPC Names tab -----------------
+class NPCNamesTab(DigimonStatsTab):
+    """
+    NPC Names tab — identical to DigimonStatsTab but uses:
+      import_d3_npc_names.py
+      export_d3_npc_names.py
+      import_digivice_npc_names.py
+      export_digivice_npc_names.py
+
+    The CSV contains ONLY:
+        string_index, name
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.replace_map_path = os.path.join(SCRIPT_DIR, "replace_map.csv")
+        self.status_label.setText("NPC Names Ready.")
+
+        # Change tab labels
+        self.export_btn.setText("Export NPC Names to CSV")
+        self.import_btn.setText("Import NPC Names from CSV")
+        self.load_table_btn.setText("Load NPC Names into Table")
+        self.save_edits_btn.setText("Save NPC Name Edits to BIN")
+
+        # CSV default
+        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "npc_names.csv")
+        self.export_csv_edit.setText(default_csv)
+
+    # --------------------------
+    # Override script selection
+    # --------------------------
+
+    def _get_export_script(self):
+        return "export_d3_npc_names.py" if self.current_bin_type_key == "D-3" else "export_digivice_npc_names.py"
+
+    def _get_import_script(self):
+        return "import_d3_npc_names.py" if self.current_bin_type_key == "D-3" else "import_digivice_npc_names.py"
+
+    # --------------------------
+    # Override export
+    # --------------------------
+
+    def on_export_clicked(self):
+        if not self.require_all():
+            return
+
+        out_csv = self.export_csv_edit.text().strip()
+        if not out_csv:
+            QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
+            return
+
+        script = self._get_export_script()
+        script_path = os.path.join(SCRIPT_DIR, script)
+
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found.")
+            return
+
+        # Run script
+        dlg = BusyDialog("Export NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, self.replace_map_path, out_csv],
+            desc="Export NPC names"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(lambda ok, msg: self._export_done(ok, msg, dlg, thread))
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+    def _export_done(self, ok, msg, dlg, thread):
+        dlg.accept()
+        thread.quit()
+        thread.wait()
+
+        if ok:
+            QtWidgets.QMessageBox.information(
+                self,
+                "NPC Names Exported",
+                "NPC names exported to npc_names.csv on your Desktop."
+            )
+        else:
+            QtWidgets.QMessageBox.critical(self, "NPC Export Error", msg)
+
+    # --------------------------
+    # Override import
+    # --------------------------
+
+    def on_import_clicked(self):
+        if not self.require_all():
+            return
+
+        csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select npc_names.csv", "", "CSV files (*.csv)"
+        )
+        if not csv_path:
+            return
+
+        script = self._get_import_script()
+
+        dlg = BusyDialog("Import NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, csv_path, self.replace_map_path, "--out", self.current_bin_path],
+            desc="Import NPC names"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(lambda ok, msg: self._import_done(ok, msg, dlg, thread))
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+    def _import_done(self, ok, msg, dlg, thread):
+        dlg.accept()
+        thread.quit()
+        thread.wait()
+        if ok:
+            QtWidgets.QMessageBox.information(self, "NPC Names Imported", msg)
+            self.on_load_table_clicked()
+        else:
+            QtWidgets.QMessageBox.critical(self, "NPC Import Error", msg)
+
+    # --------------------------
+    # Override table loader
+    # --------------------------
+
+    def on_load_table_clicked(self):
+        if not self.require_all():
+            return
+
+        script = self._get_export_script()
+        tmp_dir = tempfile.mkdtemp(prefix="npc_gui_")
+        tmp_csv = os.path.join(tmp_dir, "npc_tmp.csv")
+
+        dlg = BusyDialog("Load NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, self.replace_map_path, tmp_csv],
+            desc="Extract NPC names"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        def finished(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+
+            if ok:
+                try:
+                    with open(tmp_csv, "r", encoding="utf-8-sig") as f:
+                        rows = list(csv.DictReader(f))
+                    self.populate_table(rows)
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(self, "NPC CSV Error", str(e))
+            else:
+                QtWidgets.QMessageBox.critical(self, "NPC Load Error", msg)
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        worker.finished.connect(finished)
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+    # --------------------------
+    # Populate the table
+    # --------------------------
+
+    def populate_table(self, rows):
+        self.table.clear()
+        self.table.setRowCount(len(rows))
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["string_index", "Name"])
+        self.table.setColumnHidden(0, True)  # hide string_index
+
+        self.original_names = []
+        self.name_caps = []
+
+        for r_idx, row in enumerate(rows):
+            idx = row["string_index"]
+            name = row["name"]
+
+            self.original_names.append(name)
+            self.name_caps.append(len(name))
+
+            idx_item = QtWidgets.QTableWidgetItem(idx)
+            idx_item.setFlags(idx_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+
+            self.table.setItem(r_idx, 0, idx_item)
+            self.table.setItem(r_idx, 1, QtWidgets.QTableWidgetItem(name))
+
+        self.table.resizeColumnsToContents()
+        self.save_edits_btn.setEnabled(True)
+
+    # --------------------------
+    # Save edits to BIN
+    # --------------------------
+
+    def on_save_edits_clicked(self):
+        if not self.require_all():
+            return
+
+        rows_out = []
+        self._last_forbidden_rows = []
+
+        for r in range(self.table.rowCount()):
+            idx = self.table.item(r, 0).text()
+            new_name = self.table.item(r, 1).text()
+            old_name = self.original_names[r]
+
+            if any(c in FORBIDDEN_CHARS for c in new_name):
+                name_to_write = old_name
+                self._last_forbidden_rows.append(r + 1)
+            else:
+                if len(new_name) > len(old_name):
+                    name_to_write = old_name
+                elif len(new_name) < len(old_name):
+                    name_to_write = new_name + "_" * (len(old_name) - len(new_name))
+                else:
+                    name_to_write = new_name
+
+            rows_out.append({"string_index": idx, "name": name_to_write})
+
+        # write temp CSV
+        tmp_dir = tempfile.mkdtemp(prefix="npc_save_")
+        tmp_csv = os.path.join(tmp_dir, "npc_edit.csv")
+
+        with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=["string_index", "name"])
+            w.writeheader()
+            w.writerows(rows_out)
+
+        script = self._get_import_script()
+
+        dlg = BusyDialog("Save NPC Edits", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, tmp_csv, self.replace_map_path, "--out", self.current_bin_path],
+            desc="Apply NPC changes"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        def finish(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+            if ok:
+                QtWidgets.QMessageBox.information(self, "NPC Edits Saved", msg)
+                self.on_load_table_clicked()
+            else:
+                QtWidgets.QMessageBox.critical(self, "NPC Save Error", msg)
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        worker.finished.connect(finish)
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
 
 # ----------------- Main Window + Dark Palette -----------------
 
@@ -1568,9 +1837,11 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs = QtWidgets.QTabWidget()
         self.sprites_tab = SpritesTab(self)
         self.partner_tab = DigimonStatsTab(self)
+        self.npc_tab = NPCNamesTab(self)
 
         tabs.addTab(self.sprites_tab, "Sprites")
         tabs.addTab(self.partner_tab, "Digimon Stats")
+        tabs.addTab(self.npc_tab, "NPC Names")
 
         # show Sprites tab by default
         tabs.setCurrentIndex(0)
