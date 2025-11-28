@@ -25,6 +25,13 @@
 
 ---
 
+## HARDWARE REQUIRED
+1. CH341A flash programmer: https://www.amazon.com/dp/B0BYSRSZPC ,
+2. PCB Clip 7P Single 1.5mm with Dupont: https://www.aliexpress.us/item/3256806423435336.html 
+3. A screw driver of the right size. Don't attempt with a screw driver too big or too small, get a size close to the screws on the back of the D-3 or Digivice.
+
+---
+
 ## FEATURES
 
 ### Currently Supported:
