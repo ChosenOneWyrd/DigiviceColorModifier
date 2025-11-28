@@ -19,7 +19,7 @@
 - [Ranked Vital Bracelet DM Digimon](https://humulos.com/digimon/vbdm/ranked/)
 
 ### Where to Get Sprites of Other Digimon
-- [Sirec DIM Archive (Reddit)](https://www.reddit.com/r/DigimonVitalBracelet/comments/1c2xm2y/sirec_dim_archive/)
+- [Sirec DIM Archive (Reddit)](https://www.reddit.com/r/DigimonVitalBracelet/comments/1c2xm2y/sirec_dim_archive/) You can download the above and use the DIM-Modifier-Tool in my DigiviceColorModifier.zip to open the above files and export their spritesheets.
 - [Google Drive Folder 1](https://drive.google.com/drive/folders/1Nh4v0p_xISOuqV755uPW4MSNBywu7h2E)
 - [Google Drive Folder 2](https://drive.google.com/drive/folders/13OfTj8YD8vEZjAgZm8zlPpyYf2UESWKO?usp=sharing)
 
@@ -32,9 +32,11 @@
 - Modding **D-3 25th** Color Digimon Names
 - Modding **D-3 25th** Color Digimon Power
 - Modding **D-3 25th** Color Digimon Stage
+- Modding **D-3 25th** Color baby digimon names, digimental names, map names
 - Modding **Digivice 25th** Color Sprites & Images
 - Modding **Digivice 25th** Color Digimon Names
 - Modding **Digivice 25th** Color Digimon Power
+- Modding **Digivice 25th** Color baby digimon names, digimental names, map names
 - Support for both **Mac** and **Windows**
 
 ### Unsupported:
@@ -53,7 +55,7 @@
 
 1. **Always start by creating a BACKUP COPY of your .bin file** so that even if it gets corrupted you can start over. If you lose your .bin file, DM me on discord for a copy of mine. Again, DM me, do not message in any discord server.
 
-2. **While changing Digimon Images**, your New Digimon Images should have the same color count as your Old Digimon Images. Use some tool like [Canvas Pixel Color Counter](https://townsean.github.io/canvas-pixel-color-counter) to find the color count of your images.
+2. **While changing Digimon Images**, your New Digimon Images should have the same color count as your Old Digimon Images. I have added an auto-adjust color count feature when you update the palette and it works fine for most images. But if your image still has wrong colors after replacing, then use some tool like https://townsean.github.io/canvas-pixel-color-counter to find the color count of your images and then use GIMP or https://onlinepngtools.com/decrease-png-color-count to reduce the color count.
 
 3. **While changing Digimon Names**, your New Digimon Name should have the same length as your Old Digimon Name. Use _ for whitespace. Only alphabets A-Z allowed, no numbers or symbols. Examples:
    - FLORAMON has 8 letters, but I want to change it to KUDAMON which has only 7 letters. Then in the tool, I will type `KUDAMON_` to make it 8 characters. The underscore _ represents a blank space.
@@ -149,6 +151,22 @@ export_digivice_data.py - Exports the digimon names, powers, stages from Digivic
 import_digivice_data.py - Imports the digimon names, powers, stages from data.csv to D3.bin:
 
 		python import_digivice_data.py Digivice.bin data.csv replace_map.csv --out Digivice.bin
+
+export_d3_npc_names.py - Exports baby digimon names, digimental names, map names from D3.bin to npc_names.csv:
+		
+		python export_d3_npc_names.py D3.bin replace_map.csv npc_names.csv
+
+import_d3_npc_names.py - Imports baby digimon names, digimental names, map names from npc_names.csv to D3.bin:
+
+		python import_d3_npc_names.py D3.bin npc_names.csv replace_map.csv --out D3.bin
+
+export_digivice_npc_names.py - Exports baby digimon names, digimental names, map names from Digivice.bin to npc_names.csv:
+		
+		python export_digivice_npc_names.py Digivice.bin replace_map.csv npc_names.csv
+
+import_digivice_npc_names.py - Imports baby digimon names, digimental names, map names from npc_names.csv to Digivice.bin:
+
+		python import_digivice_npc_names.py Digivice.bin npc_names.csv replace_map.csv --out Digivice.bin
       
 ### BUILDING THE SOURCE CODE INTO .exe or .app
 1. Create a virtual environment using:<br/>
@@ -166,7 +184,7 @@ import_digivice_data.py - Imports the digimon names, powers, stages from data.cs
 	
 	Windows:
 
-	pyinstaller --name "DigiviceColorModifier" --onefile --noconsole --icon "icons\digivice.ico" --add-data "kindness.gif;." --add-data "replace_map.csv;." --add-data "export_sprites.py;." --add-data "update_palette.py;." --add-data "replace_sprites.py;." --add-data "export_d3_data.py;." --add-data "export_digivice_data.py;." --add-data "import_d3_data.py;." --add-data "import_digivice_data.py;." digimon_tool_gui.py
+	pyinstaller --name "DigiviceColorModifier" --onefile --noconsole --icon "icons\digivice.ico" --add-data "kindness.gif;." --add-data "replace_map.csv;." --add-data "export_sprites.py;." --add-data "update_palette.py;." --add-data "replace_sprites.py;." --add-data "export_d3_data.py;." --add-data "export_digivice_data.py;." --add-data "import_d3_data.py;." --add-data "import_digivice_data.py;." --add-data "import_d3_npc_names.py;." --add-data "export_d3_npc_names.py;." --add-data "import_digivice_npc_names.py;." --add-data "export_digivice_npc_names.py;." digimon_tool_gui.py
 
 	Mac:
 
@@ -184,7 +202,10 @@ import_digivice_data.py - Imports the digimon names, powers, stages from data.cs
      --add-data "export_digivice_data.py:." \
      --add-data "import_d3_data.py:." \
      --add-data "import_digivice_data.py:." \
-     digimon_tool_gui.py  
-
+     --add-data "import_d3_npc_names.py:." \
+     --add-data "export_d3_npc_names.py:." \
+     --add-data "import_digivice_npc_names.py:." \
+     --add-data "export_digivice_npc_names.py:." \
+     digimon_tool_gui.py
 
   <br/>The app will be generated and stored in the dist folder.
