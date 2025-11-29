@@ -1,3 +1,4 @@
-PyQt6
+PyQt5
 pillow
 pyinstaller
+numpy
