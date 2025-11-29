@@ -7,7 +7,7 @@ import csv
 import tempfile
 from typing import List, Tuple, Optional
 
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 import runpy
 
 import export_sprites as es
