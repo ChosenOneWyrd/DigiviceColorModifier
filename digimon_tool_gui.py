@@ -1806,7 +1806,9 @@ class SoundsTab(QtWidgets.QWidget):
         self.current_bin_path: Optional[str] = None
         self.input_sounds_dir: Optional[str] = None
 
-        self.sound_map_csv = os.path.join(SCRIPT_DIR, "d3_sound_map.csv")
+        # Will be set when BIN type is chosen
+        self.sound_map_csv: Optional[str] = None
+
         self._build_ui()
 
     def _build_ui(self):
@@ -1900,8 +1902,25 @@ class SoundsTab(QtWidgets.QWidget):
     def on_type_changed(self, index):
         if index <= 0:
             self.current_bin_type_key = None
+            self.sound_map_csv = None
+            self.status_label.setText("Please select a BIN type.")
+            return
+
+        self.current_bin_type_key = self.bin_type_combo.itemData(index)
+
+        # Pick the correct sound map CSV depending on BIN type
+        if self.current_bin_type_key == "D-3":
+            self.sound_map_csv = os.path.join(SCRIPT_DIR, "d3_sound_map.csv")
+        elif self.current_bin_type_key == "Digivice":
+            self.sound_map_csv = os.path.join(SCRIPT_DIR, "digivice_sound_map.csv")
         else:
-            self.current_bin_type_key = self.bin_type_combo.itemData(index)
+            self.sound_map_csv = None
+
+        # Optional: small status hint
+        if self.sound_map_csv and os.path.isfile(self.sound_map_csv):
+            self.status_label.setText(f"Using sound map: {os.path.basename(self.sound_map_csv)}")
+        else:
+            self.status_label.setText("Sound map CSV not found for this BIN type.")
 
     def on_pick_bin(self):
         if not self.current_bin_type_key:
