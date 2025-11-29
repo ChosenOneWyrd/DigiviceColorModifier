@@ -138,9 +138,9 @@ replace_sprite.py - This program replaces the old images present inside D3.bin w
 
 		python replace_sprite.py "D3.bin" --input-dir ./input_sprites --out D3.bin
 
-This program extracts sprites from D3.bin. We will use this to verify whether our new images were updated properly in D3.bin or not. The extracted sprites are sent to sprites_out folder.
+This program extracts sprites from D3.bin. We will use this to verify whether our new images were updated properly in D3.bin or not. The extracted sprites are sent to exported_sprites folder.
  
-		python extract_sprites.py "D3.bin" --out sprites_out --start 0 --end 4 --banks 0-0
+		python export_sprites.py "D3.bin" --out exported_sprites --start 0 --end 4 --banks 0-0
  
 --start 0 --end 4 means that this command will extract images from index 0 till index 4 (excluding 4) from the D3.bin file. If you don’t specify start and end, it will extract all sprites from D3.bin, but you have those anyway in the zip file I included.
 
@@ -175,6 +175,14 @@ export_digivice_npc_names.py - Exports baby digimon names, digimental names, map
 import_digivice_npc_names.py - Imports baby digimon names, digimental names, map names from npc_names.csv to Digivice.bin:
 
 		python import_digivice_npc_names.py Digivice.bin npc_names.csv replace_map.csv --out Digivice.bin
+
+import_sounds.py (Windows only) - Imports sounds from input_sounds folder to D3.bin:
+
+		python import_sounds.py D3.bin D3.bin d3_sound_map.csv input_sounds
+
+export_sounds.py (Windows only) - Exports sounds from D3.bin to exported_sounds folder:
+
+		python export_sounds.py D3.bin exported_sounds d3_sound_map.csv
       
 ### BUILDING THE SOURCE CODE INTO .exe or .app
 1. Create a virtual environment using:<br/>
