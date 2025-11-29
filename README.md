@@ -200,7 +200,7 @@ export_sounds.py (Windows only) - Exports sounds from D3.bin to exported_sounds 
 	
 	Windows:
 
-	pyinstaller --name "DigiviceColorModifier" --onefile --noconsole --icon "icons\digivice.ico" --add-data "kindness.gif;." --add-data "replace_map.csv;." --add-data "export_sprites.py;." --add-data "update_palette.py;." --add-data "replace_sprites.py;." --add-data "export_d3_data.py;." --add-data "export_digivice_data.py;." --add-data "import_d3_data.py;." --add-data "import_digivice_data.py;." --add-data "import_d3_npc_names.py;." --add-data "export_d3_npc_names.py;." --add-data "import_digivice_npc_names.py;." --add-data "export_digivice_npc_names.py;." --add-data "a1800.dll;." --add-data "d3_sound_map.csv;." --add-data "digivice_sound_map.csv;." --add-data "export_sounds.py;." --add-data "import_sounds.py;." digimon_tool_gui.py
+	pyinstaller --name "DigiviceColorModifier" --onefile --noconsole --hidden-import wave --icon "icons\digivice.ico" --add-data "kindness.gif;." --add-data "replace_map.csv;." --add-data "export_sprites.py;." --add-data "update_palette.py;." --add-data "replace_sprites.py;." --add-data "export_d3_data.py;." --add-data "export_digivice_data.py;." --add-data "import_d3_data.py;." --add-data "import_digivice_data.py;." --add-data "import_d3_npc_names.py;." --add-data "export_d3_npc_names.py;." --add-data "import_digivice_npc_names.py;." --add-data "export_digivice_npc_names.py;." --add-data "a1800.dll;." --add-data "d3_sound_map.csv;." --add-data "digivice_sound_map.csv;." --add-data "export_sounds.py;." --add-data "import_sounds.py;." digimon_tool_gui.py
 
 	Mac:
 
