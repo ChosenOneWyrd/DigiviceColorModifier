@@ -51,8 +51,6 @@ Tool for Digivice 25th color evolution modding and D-3 25th color evolution modd
 - Support for both Mac and Windows
 
 ### Unsupported:
-- Replacing D-3 25th color Evolution Lines
-- Replacing Digivice 25th color Evolution Lines
 - Adding new slots for digimon, evolution lines, etc will be forever unsupported.
 
 
