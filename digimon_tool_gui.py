@@ -2025,6 +2025,224 @@ class SoundsTab(QtWidgets.QWidget):
         else:
             QtWidgets.QMessageBox.critical(self, "Sound Export Error", msg)
 
+# ----------------- Device Sounds Tab -----------------
+
+class DeviceSoundsTab(QtWidgets.QWidget):
+    """
+    New tab for exporting/importing A18-level device sound blocks using:
+        export_device_sounds.py
+        import_device_sounds.py
+
+    No validation of input files (per your request).
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.current_bin_type_key: Optional[str] = None
+        self.current_bin_path: Optional[str] = None
+        self.input_sounds_dir: Optional[str] = None
+
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # ---------------- BIN Selection ----------------
+        bin_box = QtWidgets.QGroupBox("BIN Selection")
+        h = QtWidgets.QHBoxLayout(bin_box)
+
+        self.bin_type_combo = QtWidgets.QComboBox()
+        self.bin_type_combo.addItem("Select BIN type...")
+        for key, info in BIN_TYPES.items():
+            self.bin_type_combo.addItem(info["label"], key)
+
+        self.bin_path_edit = QtWidgets.QLineEdit()
+        self.bin_path_edit.setReadOnly(True)
+        self.bin_browse_btn = QtWidgets.QPushButton("Select .bin file")
+
+        h.addWidget(QtWidgets.QLabel("Type:"))
+        h.addWidget(self.bin_type_combo)
+        h.addSpacing(20)
+        h.addWidget(QtWidgets.QLabel("BIN File:"))
+        h.addWidget(self.bin_path_edit)
+        h.addWidget(self.bin_browse_btn)
+
+        layout.addWidget(bin_box)
+
+        # ---------------- Input folder ----------------
+        input_box = QtWidgets.QGroupBox("Import Device Sounds")
+        input_layout = QtWidgets.QVBoxLayout(input_box)
+
+        h2 = QtWidgets.QHBoxLayout()
+        self.sounds_dir_edit = QtWidgets.QLineEdit()
+        self.sounds_dir_edit.setReadOnly(True)
+        self.sounds_dir_btn = QtWidgets.QPushButton("Select input_device_sounds folder")
+
+        h2.addWidget(self.sounds_dir_edit)
+        h2.addWidget(self.sounds_dir_btn)
+
+        self.import_btn = QtWidgets.QPushButton("Import Device Sounds into BIN")
+        self.import_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+
+        input_layout.addLayout(h2)
+        input_layout.addWidget(self.import_btn)
+
+        layout.addWidget(input_box)
+
+        # ---------------- Export section ----------------
+        export_box = QtWidgets.QGroupBox("Export Device Sounds")
+        export_layout = QtWidgets.QVBoxLayout(export_box)
+
+        self.export_btn = QtWidgets.QPushButton("Export Device Sounds to Desktop/exported_device_sounds")
+        self.export_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
+
+        export_layout.addWidget(self.export_btn)
+        layout.addWidget(export_box)
+
+        # ---------------- Status ----------------
+        self.status_label = QtWidgets.QLabel("Ready.")
+        layout.addWidget(self.status_label)
+
+        # ---------------- Connect signals ----------------
+        self.bin_type_combo.currentIndexChanged.connect(self.on_type_changed)
+        self.bin_browse_btn.clicked.connect(self.on_pick_bin)
+        self.sounds_dir_btn.clicked.connect(self.on_pick_sounds_dir)
+        self.import_btn.clicked.connect(self.on_import_sounds)
+        self.export_btn.clicked.connect(self.on_export_sounds)
+
+    # ==================================================
+    # Validation helpers
+    # ==================================================
+    def require_bin(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Missing type", "Please select BIN type first.")
+            return False
+        if not self.current_bin_path:
+            QtWidgets.QMessageBox.warning(self, "Missing BIN", "Please select a .bin file.")
+            return False
+        return True
+
+    def require_sounds_dir(self):
+        if not self.input_sounds_dir or not os.path.isdir(self.input_sounds_dir):
+            QtWidgets.QMessageBox.warning(self, "Missing folder", "Please select input_device_sounds folder.")
+            return False
+        return True
+
+    # ==================================================
+    # Events
+    # ==================================================
+    def on_type_changed(self, index):
+        if index <= 0:
+            self.current_bin_type_key = None
+            self.status_label.setText("Select BIN type.")
+        else:
+            self.current_bin_type_key = self.bin_type_combo.itemData(index)
+            self.status_label.setText(f"Selected: {self.current_bin_type_key}")
+
+    def on_pick_bin(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Select Type", "Choose BIN type first.")
+            return
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select .bin", "", "BIN files (*.bin)")
+        if path:
+            self.current_bin_path = path
+            self.bin_path_edit.setText(path)
+
+    def on_pick_sounds_dir(self):
+        d = QtWidgets.QFileDialog.getExistingDirectory(self, "Select input_device_sounds folder")
+        if d:
+            self.input_sounds_dir = d
+            self.sounds_dir_edit.setText(d)
+
+    # ==================================================
+    # EXPORT DEVICE SOUNDS
+    # ==================================================
+    def on_export_sounds(self):
+        if not self.require_bin():
+            return
+
+        out_dir = os.path.join(os.path.expanduser("~"), "Desktop", "exported_device_sounds")
+        os.makedirs(out_dir, exist_ok=True)
+
+        end_val = 43 if self.current_bin_type_key == "D-3" else 40
+
+        dlg = BusyDialog("Exporting Device Sounds", "Please wait...\nThis may take a while.", self)
+
+        worker = InternalScriptWorker(
+            script_name="export_device_sounds.py",
+            script_args=[
+                self.current_bin_path,
+                "--out", out_dir,
+                "--end", str(end_val),
+            ],
+            desc="Device Sound Export"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(lambda ok, msg: self._export_done(ok, msg, dlg, thread))
+        thread.started.connect(worker.run)
+
+        thread.start()
+        dlg.exec()
+
+    def _export_done(self, ok, msg, dlg, thread):
+        dlg.accept()
+        thread.quit()
+        thread.wait()
+
+        self.status_label.setText(msg)
+
+        if ok:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Device Sounds Exported",
+                "Device sounds exported to Desktop/exported_device_sounds"
+            )
+        else:
+            QtWidgets.QMessageBox.critical(self, "Device Export Error", msg)
+
+    # ==================================================
+    # IMPORT DEVICE SOUNDS
+    # ==================================================
+    def on_import_sounds(self):
+        if not (self.require_bin() and self.require_sounds_dir()):
+            return
+
+        dlg = BusyDialog("Importing Device Sounds", "Please wait...\nThis may take a while.", self)
+
+        worker = InternalScriptWorker(
+            script_name="import_device_sounds.py",
+            script_args=[
+                self.current_bin_path,   # Input BIN
+                self.current_bin_path,   # Output BIN
+                self.input_sounds_dir,   # Folder
+            ],
+            desc="Device Sound Import"
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        worker.finished.connect(lambda ok, msg: self._import_done(ok, msg, dlg, thread))
+        thread.started.connect(worker.run)
+
+        thread.start()
+        dlg.exec()
+
+    def _import_done(self, ok, msg, dlg, thread):
+        dlg.accept()
+        thread.quit()
+        thread.wait()
+
+        self.status_label.setText(msg)
+
+        if ok:
+            QtWidgets.QMessageBox.information(self, "Device Sounds Imported", msg)
+        else:
+            QtWidgets.QMessageBox.critical(self, "Device Import Error", msg)
+
 # ----------------- Main Window + Dark Palette -----------------
 
 def apply_dark_palette(app: QtWidgets.QApplication):
@@ -2068,11 +2286,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.partner_tab = DigimonStatsTab(self)
         self.npc_tab = NPCNamesTab(self)
         self.sounds_tab = SoundsTab(self)
+        self.device_sounds_tab = DeviceSoundsTab(self)
 
         tabs.addTab(self.sprites_tab, "Sprites")
         tabs.addTab(self.partner_tab, "Digimon Stats")
         tabs.addTab(self.npc_tab, "NPC Names")
         tabs.addTab(self.sounds_tab, "Sounds")
+        tabs.addTab(self.device_sounds_tab, "Device Sounds")
 
         # show Sprites tab by default
         tabs.setCurrentIndex(0)
