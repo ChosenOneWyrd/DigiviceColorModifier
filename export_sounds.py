@@ -9,8 +9,8 @@ This script:
   4. Deletes the chunks folder
 
 Usage:
-    python d3_extract_and_decode_audio.py D-3.bin output_dir sound_map.csv
-    python d3_extract_and_decode_audio.py D-3.bin output_dir none
+    python export_sounds.py D-3.bin exported_sounds d3_sound_map.csv
+    python export_sounds.py D-3.bin exported_sounds none
 """
 
 import sys
