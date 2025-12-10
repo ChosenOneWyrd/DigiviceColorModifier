@@ -30,8 +30,8 @@ Naming convention (no CSV):
 
 Example:
 
-    python import_device_sounds.py D3.bin D3.bin input_device_sounds --dry-run
     python import_device_sounds.py D3.bin D3.bin input_device_sounds
+    python import_device_sounds.py Digivice.bin Digivice.bin input_device_sounds
 """
 
 import os

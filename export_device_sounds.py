@@ -2,10 +2,13 @@
 """
 Export SPF2ALP GeneralPlus ADPCM sounds from a device BIN.
 
-This version ONLY exports block indices 8 through 43
-(i.e., spf2alp_008.wav to spf2alp_043.wav).
+This version exports block indices from start_idx (default 8)
+through end_idx (user-specified via --end, default 43).
 
-python export_device_sounds.py D3.bin --out exported_device_sounds
+Example:
+
+    python export_device_sounds.py D3.bin --out exported_device_sounds --end 43
+    python export_device_sounds.py Digivice.bin --out exported_device_sounds --end 40
 """
 
 import os, struct, wave, argparse
@@ -36,7 +39,7 @@ def gp_adpcm_decode(adpcm_bytes):
     pcm = []
 
     for byte in adpcm_bytes:
-        # NOTE: low nibble, then high nibble
+        # low nibble then high nibble
         for nib in (byte & 0x0F, byte >> 4):
             step = step_table[step_index]
 
@@ -50,14 +53,11 @@ def gp_adpcm_decode(adpcm_bytes):
             else:
                 predictor += diff
 
-            # clamp
             predictor = max(-max_amp, min(max_amp, predictor))
 
-            # update step index
             step_index += ((nib & 7) - 4)
             step_index = max(0, min(15, step_index))
 
-            # upscale for wav output
             pcm.append(int(predictor * 16))
 
     return pcm
@@ -94,10 +94,9 @@ def extract_packs(bin_path, out_dir, start_idx=8, end_idx=43):
         pos += 1
 
     print(f"[*] Found {len(positions)} SPF2ALP blocks total")
-    print(f"[*] Exporting only indices {start_idx} through {end_idx}")
+    print(f"[*] Exporting indices {start_idx} through {end_idx}")
 
     for idx, off in enumerate(positions):
-        # skip blocks not in desired range
         if idx < start_idx or idx > end_idx:
             continue
 
@@ -113,7 +112,6 @@ def extract_packs(bin_path, out_dir, start_idx=8, end_idx=43):
             print(f"[!] Block {idx:03d} too small, skipping")
             continue
 
-        # parse sample rate
         rate = le32(pack, 0x10)
         if rate == 0 or rate > 192000:
             rate = 44100
@@ -136,6 +134,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("bin", help="Path to device BIN")
     ap.add_argument("--out", default="exported_spf2alp", help="Output directory")
+
+    # NEW ARGUMENT: end index
+    ap.add_argument("--end", type=int, default=43,
+                    help="Last SPF2ALP block index to export (default: 43)")
+
     args = ap.parse_args()
 
-    extract_packs(args.bin, args.out)
+    extract_packs(args.bin, args.out, start_idx=8, end_idx=args.end)
