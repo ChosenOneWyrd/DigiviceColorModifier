@@ -21,14 +21,8 @@ Requirements / assumptions:
       - "new" is the WAV filename we will encode
 
 Usage:
-    python d3_encode_wav_and_reinject.py \
-        original.bin \
-        output.bin \
-        reinject_map.csv \
-        wav_dir \
-        --dll a1800e.dll \
-        --dry-run \
-        --verbose
+    python import_sounds.py D3.bin D3.bin d3_sound_map.csv input_sounds
+    python import_sounds.py Digivice.bin Digivice.bin digivice_sound_map.csv input_sounds
 """
 
 import sys
