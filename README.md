@@ -80,7 +80,7 @@ Tool for Digivice 25th color evolution modding and D-3 25th color evolution modd
    - 4 => Ultimate / Mega
    - 5 => Super Ultimate / Ultra
 
-7. While changing **Digimon Sounds**, the duration and file size of your new .wav should be less than or equal to the duration and file size of the original .wav file. Otherwise, the sound you replace might be trimmed or distorted.
+7. While changing **Digimon Sounds**, the duration and file size of your new .wav should be close to the duration and file size of the original .wav file. Otherwise, the sound you replace might be trimmed or distorted. Also, make sure that all your input sounds are in the 16Khz, Mono, 16-Bit PCM format, use the tool at https://g711.org/ to convert.
 
 8. **DO NOT ABORT any operation once it starts**, even if you want to cancel it. Even if you want to cancel, just wait for it to complete and try again. The Cancel option of the app works most of the times, but sometimes could cause glitches. But avoid it just to be safe.
 
