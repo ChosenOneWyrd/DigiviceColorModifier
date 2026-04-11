@@ -2,3 +2,4 @@ PyQt5
 pillow
 pyinstaller
 numpy
+wave
