@@ -405,6 +405,13 @@ def clear_layout(layout: QtWidgets.QLayout):
             if sub is not None:
                 clear_layout(sub)
 
+class NoWheelComboBox(QtWidgets.QComboBox):
+    def wheelEvent(self, event):
+        if self.view().isVisible():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
 
 # ----------------- Sprites tab -----------------
 
@@ -429,7 +436,7 @@ class SpritesTab(QtWidgets.QWidget):
         top_vlayout = QtWidgets.QVBoxLayout(top_box)
 
         row1 = QtWidgets.QHBoxLayout()
-        self.bin_type_combo = QtWidgets.QComboBox()
+        self.bin_type_combo = NoWheelComboBox()
         self.bin_type_combo.addItem("Select BIN type...")
         for key, info in BIN_TYPES.items():
             self.bin_type_combo.addItem(info["label"], key)
@@ -446,7 +453,7 @@ class SpritesTab(QtWidgets.QWidget):
         row1.addWidget(self.bin_browse_btn)
 
         row2 = QtWidgets.QHBoxLayout()
-        self.range_combo = QtWidgets.QComboBox()
+        self.range_combo = NoWheelComboBox()
         self.bank_spin = QtWidgets.QSpinBox()
         self.bank_spin.setMinimum(0)
         self.bank_spin.setMaximum(9999)
@@ -958,32 +965,33 @@ class SpritesTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Replace sprites error", msg)
 
 
-# ----------------- Digimon Stats tab -----------------
+class LinkBattleTableTab(QtWidgets.QWidget):
+    """
+    Link Battle Table tab for D-3.
+    Uses:
+        export_d3_link_battle_table.py
+        import_d3_link_battle_table.py
+    """
 
-class DigimonStatsTab(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.current_bin_type_key: Optional[str] = None
-        self.current_bin_path: Optional[str] = None
-        self.replace_map_path: Optional[str] = os.path.join(SCRIPT_DIR, "replace_map.csv")
+        self.current_bin_type_key = None
+        self.current_bin_path = None
 
-        # for in-app editing
-        self.name_caps: List[int] = []
-        self.dv_stage_values: List[str] = []
-        self.original_names: List[str] = []   # names from extract, used as base
-        self._last_forbidden_rows: List[int] = []
+        self.name_map = {}
+        self.sprite_map = {}
 
         self._build_ui()
+        self.load_mappings()
 
     def _build_ui(self):
         main_layout = QtWidgets.QVBoxLayout(self)
 
-        # BIN selection
         top_box = QtWidgets.QGroupBox("BIN Selection")
         top_layout = QtWidgets.QHBoxLayout(top_box)
 
-        self.bin_type_combo = QtWidgets.QComboBox()
+        self.bin_type_combo = NoWheelComboBox()
         self.bin_type_combo.addItem("Select BIN type...")
         for key, info in BIN_TYPES.items():
             self.bin_type_combo.addItem(info["label"], key)
@@ -1001,59 +1009,674 @@ class DigimonStatsTab(QtWidgets.QWidget):
 
         main_layout.addWidget(top_box)
 
-        # Export/import controls
-        io_box = QtWidgets.QGroupBox("Digimon Data (CSV & In-App Editing)")
+        io_box = QtWidgets.QGroupBox("Link Battle Table CSV & In-App Editing")
         io_layout = QtWidgets.QGridLayout(io_box)
 
-        # Default CSV path on Desktop (avoids read-only app bundle)
-        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "data.csv")
+        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "d3_link_battle_table.csv")
         self.export_csv_edit = QtWidgets.QLineEdit(default_csv)
 
-        self.export_btn = QtWidgets.QPushButton("Export data to CSV")
-        self.export_btn.setStyleSheet("background-color: #0006b1; color: white; font-weight: 600;font-size: 14pt;")
+        self.export_btn = QtWidgets.QPushButton("Export Link Battle Table to CSV")
+        self.export_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
 
-        self.import_btn = QtWidgets.QPushButton("Import data from CSV")
-        self.import_btn.setStyleSheet("background-color: #0006b1; color: white; font-weight: 600;font-size: 14pt;")
+        self.import_btn = QtWidgets.QPushButton("Import Link Battle Table from CSV")
+        self.import_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
 
-        self.load_table_btn = QtWidgets.QPushButton("Load Data into Table")
-        self.load_table_btn.setStyleSheet("background-color: #008000; color: white; font-weight: 600;font-size: 14pt;")
-        self.save_edits_btn = QtWidgets.QPushButton("Save Edits to BIN")
-        self.save_edits_btn.setStyleSheet("background-color: #008000; color: white; font-weight: 600;font-size: 14pt;")
+        self.load_table_btn = QtWidgets.QPushButton("Refresh")
+        self.load_table_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+
+        self.reset_btn = QtWidgets.QPushButton("Reset to Original ?")
+        self.reset_btn.setStyleSheet("background-color:#960202;color:white;font-weight:600;font-size:14pt;")
+
+        self.save_edits_btn = QtWidgets.QPushButton("Save Link Battle Edits to BIN")
+        self.save_edits_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
         self.save_edits_btn.setEnabled(False)
 
         io_layout.addWidget(QtWidgets.QLabel("Export CSV path:"), 0, 0)
         io_layout.addWidget(self.export_csv_edit, 0, 1)
         io_layout.addWidget(self.export_btn, 0, 2)
 
-        io_layout.addWidget(self.load_table_btn, 2, 0)
-        io_layout.addWidget(self.save_edits_btn, 2, 1)
-        io_layout.addWidget(self.import_btn, 2, 2)
+        io_layout.addWidget(self.load_table_btn, 1, 0)
+        io_layout.addWidget(self.reset_btn, 1, 1)
+        io_layout.addWidget(self.save_edits_btn, 1, 2)
+        io_layout.addWidget(self.import_btn, 1, 3)
 
         main_layout.addWidget(io_box)
 
-        # Table for in-app editing
         self.table = QtWidgets.QTableWidget()
-        self.table.setColumnCount(0)
-        self.table.setRowCount(0)
-        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked |
-                                   QtWidgets.QAbstractItemView.EditTrigger.SelectedClicked |
-                                   QtWidgets.QAbstractItemView.EditTrigger.AnyKeyPressed)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-
         main_layout.addWidget(self.table, 1)
 
         self.status_label = QtWidgets.QLabel("Ready.")
         self.status_label.setWordWrap(True)
         main_layout.addWidget(self.status_label)
 
-        # connections
         self.bin_type_combo.currentIndexChanged.connect(self.on_bin_type_changed)
         self.bin_browse_btn.clicked.connect(self.on_select_bin_file)
         self.export_btn.clicked.connect(self.on_export_clicked)
         self.import_btn.clicked.connect(self.on_import_clicked)
         self.load_table_btn.clicked.connect(self.on_load_table_clicked)
         self.save_edits_btn.clicked.connect(self.on_save_edits_clicked)
+        self.reset_btn.clicked.connect(self.on_reset_clicked)
+
+    def _short_status(self, msg):
+        return msg if len(msg) <= 100 else msg[:97] + "..."
+    
+    def build_name_map_from_bin(self):
+        """
+        Builds mapping: display_name -> string_index
+        directly from D3.bin using export_d3_names.py
+        """
+        if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
+            return {}
+
+        tmp_dir = tempfile.mkdtemp(prefix="names_map_")
+        tmp_csv = os.path.join(tmp_dir, "names_tmp.csv")
+
+        script = os.path.join(SCRIPT_DIR, "export_d3_names.py")
+        replace_map = os.path.join(SCRIPT_DIR, "replace_map.csv")
+
+        if not os.path.isfile(script):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return {}
+
+        try:
+            # Run exporter internally
+            old_argv = sys.argv
+            sys.argv = [
+                "export_d3_names.py",
+                self.current_bin_path,
+                replace_map,
+                tmp_csv,
+            ]
+
+            runpy.run_path(script, run_name="__main__")
+
+            # Build mapping
+            mapping = {}
+            with open(tmp_csv, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    si = str(row.get("string_index", "")).strip()
+                    name = str(row.get("name", "")).strip()
+                    if si and name:
+                        mapping[f"{name} ({si})"] = si
+
+            return mapping
+
+        except Exception as e:
+            print(f"[WARN] Failed to build name map from BIN: {e}")
+            return {}
+
+        finally:
+            sys.argv = old_argv
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def on_bin_type_changed(self, index):
+        if index <= 0:
+            self.current_bin_type_key = None
+        else:
+            self.current_bin_type_key = self.bin_type_combo.itemData(index)
+
+    def require_all(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
+            return False
+
+        if self.current_bin_type_key != "D-3":
+            QtWidgets.QMessageBox.warning(
+                self,
+                "D-3 only",
+                "Link Battle Table editing is currently enabled only for D-3.",
+            )
+            return False
+
+        if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
+            QtWidgets.QMessageBox.warning(self, "BIN required", "Please select a valid .bin file.")
+            return False
+
+        return True
+
+    def on_select_bin_file(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
+            return
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select .bin file",
+            "",
+            "BIN files (*.bin);;All files (*)",
+        )
+        if not path:
+            return
+
+        self.current_bin_path = path
+        self.name_map = self.build_name_map_from_bin()
+        self.bin_path_edit.setText(path)
+
+        self.on_load_table_clicked()
+
+    def load_mappings(self):
+        def csv_path(name):
+            return os.path.join(SCRIPT_DIR, name)
+
+        self.name_map = {}
+        self.sprite_map = self.load_simple_map(csv_path("d3_sprite_map.csv"))
+
+    def load_name_map(self, path):
+        m = {}
+        if not os.path.isfile(path):
+            return m
+
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                si = str(row.get("string_index", "")).strip()
+                name = str(row.get("name", "")).strip()
+                if si != "" and name != "":
+                    m[name] = si
+        return m
+
+    def load_simple_map(self, path):
+        m = {}
+        if not os.path.isfile(path):
+            return m
+
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                key = str(row.get("key", "")).strip()
+                value = str(row.get("value", "")).strip()
+                if key:
+                    m[key] = value
+        return m
+
+    def make_spin(self, value):
+        spin = QtWidgets.QSpinBox()
+        spin.setMinimum(0)
+        spin.setMaximum(65535)
+        try:
+            spin.setValue(int(str(value).strip(), 0))
+        except Exception:
+            spin.setValue(0)
+        return spin
+
+    def make_combo(self, mapping, current_value):
+        combo = NoWheelComboBox()
+        current_value = str(current_value).strip()
+
+        matched = False
+        for key, value in mapping.items():
+            value = str(value).strip()
+            combo.addItem(key, value)
+            if value == current_value:
+                combo.setCurrentText(key)
+                matched = True
+
+        if not matched:
+            fallback = f"(current value: {current_value})"
+            combo.insertItem(0, fallback, current_value)
+            combo.setCurrentIndex(0)
+
+        return combo
+
+    def on_export_clicked(self):
+        if not self.require_all():
+            return
+
+        out_csv = self.export_csv_edit.text().strip()
+        if not out_csv:
+            QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
+            return
+
+        script = "export_d3_link_battle_table.py"
+        script_path = os.path.join(SCRIPT_DIR, script)
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            return
+
+        dlg = BusyDialog("Export Link Battle Table", "Please wait...\nExporting link battle table.", self)
+
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, out_csv],
+            desc="Export Link Battle Table",
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        def done(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+            self.status_label.setText(self._short_status(msg))
+
+            if ok:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Link Battle Table Exported",
+                    "Link battle table was exported to d3_link_battle_table.csv on your Desktop.",
+                )
+                try:
+                    self.populate_table_from_csv(out_csv)
+                    self.save_edits_btn.setEnabled(True)
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Table load warning",
+                        f"Export worked, but table load failed:\n{e}",
+                    )
+            else:
+                QtWidgets.QMessageBox.critical(self, "Export Link Battle Table Error", msg)
+
+        worker.finished.connect(done)
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+    def on_import_clicked(self):
+        if not self.require_all():
+            return
+
+        in_csv, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select d3_link_battle_table.csv",
+            "",
+            "CSV files (*.csv);;All files (*)",
+        )
+        if not in_csv:
+            return
+
+        self.run_import_script(in_csv, reload_after=True)
+
+    def on_load_table_clicked(self):
+        if not self.require_all():
+            return
+
+        tmp_dir = tempfile.mkdtemp(prefix="d3_link_battle_table_gui_")
+        tmp_csv = os.path.join(tmp_dir, "d3_link_battle_table_tmp.csv")
+
+        script = "export_d3_link_battle_table.py"
+        script_path = os.path.join(SCRIPT_DIR, script)
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        dlg = BusyDialog("Refresh", "Please wait...\nLoading link battle table from D3.bin.", self)
+
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[self.current_bin_path, tmp_csv],
+            desc="Refresh",
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        def done(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+
+            if ok:
+                try:
+                    self.name_map = self.build_name_map_from_bin()
+                    self.populate_table_from_csv(tmp_csv)
+                    self.save_edits_btn.setEnabled(True)
+                    self.status_label.setText("Link battle table loaded.")
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to Refresh:\n{e}")
+                    self.status_label.setText("Link battle table load failed.")
+            else:
+                self.status_label.setText(self._short_status(msg))
+                QtWidgets.QMessageBox.critical(self, "Refresh Error", msg)
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        worker.finished.connect(done)
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+    def populate_table_from_csv(self, csv_path):
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+        headers = [
+            "digimon_id",
+            "string_index",
+            "stage",
+            "sprite_index",
+            "power",
+        ]
+
+        pretty = [
+            "digimon_id",
+            "Name",
+            "stage",
+            "sprite_index",
+            "power",
+        ]
+
+        self.table.clear()
+        self.table.setRowCount(len(rows))
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(pretty)
+
+        for r_idx, row in enumerate(rows):
+            item = QtWidgets.QTableWidgetItem(str(row.get("digimon_id", "")))
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            item.setBackground(QtGui.QColor(70, 70, 70))
+            item.setForeground(QtGui.QColor(200, 200, 200))
+            self.table.setItem(r_idx, 0, item)
+
+            self.table.setCellWidget(
+                r_idx,
+                1,
+                self.make_combo(self.name_map, row.get("string_index", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                2,
+                self.make_spin(row.get("stage", 0)),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                3,
+                self.make_combo(self.sprite_map, row.get("sprite_index", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                4,
+                self.make_spin(row.get("power", 0)),
+            )
+
+        self.table.resizeColumnsToContents()
+
+        self.table.setColumnWidth(1, 160)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.ResizeMode.Fixed
+        )
+
+    def on_save_edits_clicked(self):
+        if not self.require_all():
+            return
+
+        if self.table.rowCount() == 0:
+            QtWidgets.QMessageBox.information(self, "No data", "There is no link battle table loaded.")
+            return
+
+        rows_out = []
+
+        for r in range(self.table.rowCount()):
+            row = {
+                "digimon_id": self.table.item(r, 0).text(),
+                "string_index": self.table.cellWidget(r, 1).currentData(),
+                "stage": self.table.cellWidget(r, 2).value(),
+                "sprite_index": self.table.cellWidget(r, 3).currentData(),
+                "power": self.table.cellWidget(r, 4).value(),
+            }
+            rows_out.append(row)
+
+        fieldnames = [
+            "digimon_id",
+            "string_index",
+            "stage",
+            "sprite_index",
+            "power",
+        ]
+
+        tmp_dir = tempfile.mkdtemp(prefix="d3_link_battle_table_save_")
+        tmp_csv = os.path.join(tmp_dir, "d3_link_battle_table_edit.csv")
+
+        try:
+            with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows_out)
+        except Exception as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to write temp CSV:\n{e}")
+            return
+
+        self.run_import_script(tmp_csv, reload_after=True, cleanup_dir=tmp_dir)
+
+    def on_reset_clicked(self):
+        if not self.require_all():
+            return
+
+        original_csv = os.path.join(SCRIPT_DIR, "d3_link_battle_table_original.csv")
+
+        if not os.path.isfile(original_csv):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Missing file",
+                "d3_link_battle_table_original.csv not found next to this GUI."
+            )
+            return
+
+        res = QtWidgets.QMessageBox.warning(
+            self,
+            "Reset Link Battle Table to Original?",
+            (
+                "This will overwrite ALL Link Battle Table data in this .bin file\n"
+                "with the baseline values from d3_link_battle_table_original.csv.\n\n"
+                "You will not lose game progress. But Link Battle Table modding changes will be lost.\n\n"
+                "Continue?"
+            ),
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+
+        if res != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        self.run_import_script(original_csv, reload_after=True)
+
+    def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
+        script = "import_d3_link_battle_table.py"
+        script_path = os.path.join(SCRIPT_DIR, script)
+
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
+            return
+
+        dlg = BusyDialog("Import Link Battle Table", "Please wait...\nApplying link battle table changes to BIN.", self)
+
+        worker = InternalScriptWorker(
+            script_name=script,
+            script_args=[
+                self.current_bin_path,
+                csv_path,
+                self.current_bin_path,
+            ],
+            desc="Import Link Battle Table",
+        )
+
+        thread = QtCore.QThread(self)
+        worker.moveToThread(thread)
+
+        def done(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+
+            self.status_label.setText(self._short_status(msg))
+
+            if ok:
+                QtWidgets.QMessageBox.information(self, "Link Battle Table Imported", msg)
+                if reload_after:
+                    self.on_load_table_clicked()
+            else:
+                QtWidgets.QMessageBox.critical(self, "Link Battle Table Import Error", msg)
+
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+        worker.finished.connect(done)
+        thread.started.connect(worker.run)
+        thread.start()
+        dlg.exec()
+
+# ----------------- Partner Table tab -----------------
+
+class PartnerTableTab(QtWidgets.QWidget):
+    """
+    Partner Table tab for D-3.
+    Uses:
+        export_d3_partner_table.py
+        import_d3_partner_table.py
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.current_bin_type_key: Optional[str] = None
+        self.current_bin_path: Optional[str] = None
+
+        self.name_map = {}
+        self.sprite_map = {}
+        self.jogress_map = {}
+        self.evo_map = {}
+        self.bgm_map = {}
+        self.voice_map = {}
+        self.shot_sound_map = {}
+        self.partner_hidden_rows = []
+
+        self._build_ui()
+        self.load_mappings()
+
+    def _build_ui(self):
+        main_layout = QtWidgets.QVBoxLayout(self)
+
+        # BIN selection
+        top_box = QtWidgets.QGroupBox("BIN Selection")
+        top_layout = QtWidgets.QHBoxLayout(top_box)
+
+        self.bin_type_combo = NoWheelComboBox()
+        self.bin_type_combo.addItem("Select BIN type...")
+        for key, info in BIN_TYPES.items():
+            self.bin_type_combo.addItem(info["label"], key)
+
+        self.bin_path_edit = QtWidgets.QLineEdit()
+        self.bin_path_edit.setReadOnly(True)
+        self.bin_browse_btn = QtWidgets.QPushButton("Select .bin file...")
+
+        top_layout.addWidget(QtWidgets.QLabel("Type of .bin file:"))
+        top_layout.addWidget(self.bin_type_combo)
+        top_layout.addSpacing(20)
+        top_layout.addWidget(QtWidgets.QLabel("Selected .bin:"))
+        top_layout.addWidget(self.bin_path_edit)
+        top_layout.addWidget(self.bin_browse_btn)
+
+        main_layout.addWidget(top_box)
+
+        # CSV controls
+        io_box = QtWidgets.QGroupBox("Partner Table CSV & In-App Editing")
+        io_layout = QtWidgets.QGridLayout(io_box)
+
+        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "d3_partner_table.csv")
+        self.export_csv_edit = QtWidgets.QLineEdit(default_csv)
+
+        self.export_btn = QtWidgets.QPushButton("Export Partner Table to CSV")
+        self.export_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
+
+        self.import_btn = QtWidgets.QPushButton("Import Partner Table from CSV")
+        self.import_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
+
+        self.load_table_btn = QtWidgets.QPushButton("Refresh")
+        self.load_table_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+
+        self.reset_btn = QtWidgets.QPushButton("Reset to Original ?")
+        self.reset_btn.setStyleSheet("background-color:#960202;color:white;font-weight:600;font-size:14pt;")
+
+        self.save_edits_btn = QtWidgets.QPushButton("Save Partner Table Edits to BIN")
+        self.save_edits_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+        self.save_edits_btn.setEnabled(False)
+
+        io_layout.addWidget(QtWidgets.QLabel("Export CSV path:"), 0, 0)
+        io_layout.addWidget(self.export_csv_edit, 0, 1)
+        io_layout.addWidget(self.export_btn, 0, 2)
+
+        io_layout.addWidget(self.load_table_btn, 1, 0)
+        io_layout.addWidget(self.reset_btn, 1, 1)
+        io_layout.addWidget(self.save_edits_btn, 1, 2)
+        io_layout.addWidget(self.import_btn, 1, 3)
+
+        main_layout.addWidget(io_box)
+
+        self.table = QtWidgets.QTableWidget()
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        main_layout.addWidget(self.table, 1)
+
+        self.status_label = QtWidgets.QLabel("Ready.")
+        self.status_label.setWordWrap(True)
+        main_layout.addWidget(self.status_label)
+
+        self.bin_type_combo.currentIndexChanged.connect(self.on_bin_type_changed)
+        self.bin_browse_btn.clicked.connect(self.on_select_bin_file)
+        self.export_btn.clicked.connect(self.on_export_clicked)
+        self.import_btn.clicked.connect(self.on_import_clicked)
+        self.load_table_btn.clicked.connect(self.on_load_table_clicked)
+        self.save_edits_btn.clicked.connect(self.on_save_edits_clicked)
+        self.reset_btn.clicked.connect(self.on_reset_clicked)
+
+    def _short_status(self, msg: str) -> str:
+        return msg if len(msg) <= 100 else msg[:97] + "..."
+    
+    def build_name_map_from_bin(self):
+        """
+        Builds mapping: display_name -> string_index
+        directly from D3.bin using export_d3_names.py
+        """
+        if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
+            return {}
+
+        tmp_dir = tempfile.mkdtemp(prefix="names_map_")
+        tmp_csv = os.path.join(tmp_dir, "names_tmp.csv")
+
+        script = os.path.join(SCRIPT_DIR, "export_d3_names.py")
+        replace_map = os.path.join(SCRIPT_DIR, "replace_map.csv")
+
+        if not os.path.isfile(script):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return {}
+
+        try:
+            # Run exporter internally
+            old_argv = sys.argv
+            sys.argv = [
+                "export_d3_names.py",
+                self.current_bin_path,
+                replace_map,
+                tmp_csv,
+            ]
+
+            runpy.run_path(script, run_name="__main__")
+
+            # Build mapping
+            mapping = {}
+            with open(tmp_csv, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    si = str(row.get("string_index", "")).strip()
+                    name = str(row.get("name", "")).strip()
+                    if si and name:
+                        mapping[f"{name} ({si})"] = si
+
+            return mapping
+
+        except Exception as e:
+            print(f"[WARN] Failed to build name map from BIN: {e}")
+            return {}
+
+        finally:
+            sys.argv = old_argv
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def on_bin_type_changed(self, index: int):
         if index <= 0:
@@ -1061,40 +1684,156 @@ class DigimonStatsTab(QtWidgets.QWidget):
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(index)
 
-    def on_select_bin_file(self):
-        if not self.current_bin_type_key:
-            QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
-            return
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select .bin file", "", "BIN files (*.bin);;All files (*)")
-        if not path:
-            return
-        self.current_bin_path = path
-        self.bin_path_edit.setText(path)
-        # Auto-trigger "Load Data into Table"
-        self.on_load_table_clicked()
-
     def require_all(self) -> bool:
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
             return False
+
+        if self.current_bin_type_key != "D-3":
+            QtWidgets.QMessageBox.warning(
+                self,
+                "D-3 only",
+                "Partner Table editing is currently enabled only for D-3.",
+            )
+            return False
+
         if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
             QtWidgets.QMessageBox.warning(self, "BIN required", "Please select a valid .bin file.")
             return False
-        if not self.replace_map_path or not os.path.isfile(self.replace_map_path):
-            QtWidgets.QMessageBox.warning(
-                self,
-                "replace_map.csv required",
-                "Please select a valid replace_map.csv file.",
-            )
-            return False
+
         return True
 
-    # --- CSV export/import with BusyDialog ---
+    def on_select_bin_file(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
+            return
 
-    def _short_status(self, msg: str) -> str:
-        if len(msg) <= 80:
-            return msg
-        return msg[:77] + "..."
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select .bin file",
+            "",
+            "BIN files (*.bin);;All files (*)",
+        )
+        if not path:
+            return
+
+        self.current_bin_path = path
+        self.name_map = self.build_name_map_from_bin()
+        self.bin_path_edit.setText(path)
+
+        # Auto-load after selecting BIN
+        self.on_load_table_clicked()
+
+    # ---------------- mappings ----------------
+
+    def load_mappings(self):
+        def csv_path(name):
+            return os.path.join(SCRIPT_DIR, name)
+
+        self.name_map = {}
+        self.sprite_map = self.load_simple_map(csv_path("d3_sprite_map.csv"))
+        self.jogress_map = self.load_simple_map(csv_path("d3_jogress_win_partner_id_map.csv"))
+        self.evo_map = self.load_simple_map(csv_path("d3_evo_animation_map.csv"))
+        self.bgm_map = self.load_simple_map(csv_path("d3_background_music_during_battle_id_map.csv"))
+        self.voice_map = self.load_simple_map(csv_path("d3_attack_voice_sound_id_map.csv"))
+        self.shot_sound_map = self.load_simple_map(csv_path("d3_attack_shot_sound_id_map.csv"))
+
+    def load_name_map(self, path):
+        """
+        Returns display_name -> string_index.
+        d3_names_original.csv columns:
+            string_index,name
+        """
+        m = {}
+        if not os.path.isfile(path):
+            return m
+
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                si = str(row.get("string_index", "")).strip()
+                name = str(row.get("name", "")).strip()
+                if si != "" and name != "":
+                    m[name] = si
+        return m
+
+    def load_simple_map(self, path):
+        """
+        Expected columns:
+            key,value
+        """
+        m = {}
+        if not os.path.isfile(path):
+            return m
+
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                key = str(row.get("key", "")).strip()
+                value = str(row.get("value", "")).strip()
+                if key:
+                    m[key] = value
+        return m
+
+    # ---------------- helper widgets ----------------
+
+    def make_spin(self, value):
+        spin = QtWidgets.QSpinBox()
+        spin.setMinimum(0)
+        spin.setMaximum(65535)
+        try:
+            spin.setValue(int(str(value).strip(), 0))
+        except Exception:
+            spin.setValue(0)
+        return spin
+
+    def make_combo(self, mapping, current_value):
+        combo = NoWheelComboBox()
+        current_value = str(current_value).strip()
+
+        matched = False
+        for key, value in mapping.items():
+            value = str(value).strip()
+            combo.addItem(key, value)
+            if value == current_value:
+                combo.setCurrentText(key)
+                matched = True
+
+        if not matched:
+            fallback = f"(current value: {current_value})"
+            combo.insertItem(0, fallback, current_value)
+            combo.setCurrentIndex(0)
+
+        return combo
+
+    def make_sprite_combo(self, row):
+        combo = NoWheelComboBox()
+
+        cur_j = str(row["jogress_win_partner_id"]).strip()
+        cur_s = str(row["sprite_index"]).strip()
+        cur_u = str(row["special_unlock"]).strip()
+        current_tuple = f"{cur_j}|{cur_s}|{cur_u}"
+
+        matched = False
+
+        for key, value in self.sprite_map.items():
+            parts = [p.strip() for p in str(value).split("|")]
+            if len(parts) != 3:
+                continue
+
+            normalized = "|".join(parts)
+            combo.addItem(key, normalized)
+
+            if normalized == current_tuple:
+                combo.setCurrentText(key)
+                matched = True
+
+        if not matched:
+            fallback = f"(current values: {current_tuple})"
+            combo.insertItem(0, fallback, current_tuple)
+            combo.setCurrentIndex(0)
+
+        return combo
+
+    # ---------------- export/import/load ----------------
 
     def on_export_clicked(self):
         if not self.require_all():
@@ -1105,55 +1844,51 @@ class DigimonStatsTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        if self.current_bin_type_key == "D-3":
-            script = "export_d3_data.py"
-        else:
-            script = "export_digivice_data.py"
-
+        script = "export_d3_partner_table.py"
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
             return
 
-        desc = "Export data to CSV"
-        self.status_label.setText("Running export...")
-        self.export_btn.setEnabled(False)
-        self.import_btn.setEnabled(False)
+        dlg = BusyDialog("Export Partner Table", "Please wait...\nExporting partner table.", self)
 
-        dlg = BusyDialog("Export data to CSV", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
                 self.current_bin_path,
-                self.replace_map_path,
                 out_csv,
             ],
-            desc=desc,
+            desc="Export Partner Table",
         )
+
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        worker.progress.connect(lambda frac, msg: self.status_label.setText(self._short_status(msg)))
-
-        def done(ok: bool, msg: str):
+        def done(ok, msg):
             dlg.accept()
             thread.quit()
             thread.wait()
-            self.export_btn.setEnabled(True)
-            self.import_btn.setEnabled(True)
             self.status_label.setText(self._short_status(msg))
+
             if ok:
                 QtWidgets.QMessageBox.information(
                     self,
-                    "Data Exported",
-                    "Data was exported to data.csv on your Desktop.\n"
-                    "Please check your Desktop folder."
+                    "Partner Table Exported",
+                    "Partner table was exported to d3_partner_table.csv on your Desktop.",
                 )
+                try:
+                    self.populate_table_from_csv(out_csv)
+                    self.save_edits_btn.setEnabled(True)
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Table load warning",
+                        f"Export worked, but table load failed:\n{e}",
+                    )
             else:
-                QtWidgets.QMessageBox.critical(self, "Export data to CSV error", msg)
+                QtWidgets.QMessageBox.critical(self, "Export Partner Table Error", msg)
 
         worker.finished.connect(done)
-
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
@@ -1162,413 +1897,500 @@ class DigimonStatsTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        # Select CSV using file dialog
         in_csv, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "Select data.csv",
+            "Select d3_partner_table.csv",
             "",
-            "CSV files (*.csv);;All files (*)"
+            "CSV files (*.csv);;All files (*)",
         )
         if not in_csv:
             return
 
-        if not os.path.isfile(in_csv):
-            QtWidgets.QMessageBox.warning(self, "Invalid CSV", "Selected CSV file does not exist.")
-            return
-
-        if self.current_bin_type_key == "D-3":
-            script = "import_d3_data.py"
-        else:
-            script = "import_digivice_data.py"
-
-        script_path = os.path.join(SCRIPT_DIR, script)
-        if not os.path.isfile(script_path):
-            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
-            return
-
-        desc = "Import data from CSV"
-        self.status_label.setText("Running import...")
-        self.export_btn.setEnabled(False)
-        self.import_btn.setEnabled(False)
-
-        dlg = BusyDialog("Import data from CSV", "Please wait...\nThis may take a while (8 - 15 mins).", self)
-        worker = InternalScriptWorker(
-            script_name=script,
-            script_args=[
-                self.current_bin_path,
-                in_csv,
-                self.replace_map_path,
-                "--out", self.current_bin_path,
-            ],
-            desc=desc,
-        )
-        thread = QtCore.QThread(self)
-        worker.moveToThread(thread)
-
-        worker.progress.connect(lambda frac, msg: self.status_label.setText(self._short_status(msg)))
-
-        def done(ok: bool, msg: str):
-            dlg.accept()
-            thread.quit()
-            thread.wait()
-            self.export_btn.setEnabled(True)
-            self.import_btn.setEnabled(True)
-            self.status_label.setText(self._short_status(msg))
-            if ok:
-                QtWidgets.QMessageBox.information(self, "Import data from CSV", msg)
-                self.on_load_table_clicked()
-            else:
-                QtWidgets.QMessageBox.critical(self, "Import data from CSV error", msg)
-
-        worker.finished.connect(done)
-
-        thread.started.connect(worker.run)
-        thread.start()
-        dlg.exec()
-
-    # --- in-app editing: Load table with BusyDialog ---
+        self.run_import_script(in_csv, reload_after=True)
 
     def on_load_table_clicked(self):
         if not self.require_all():
             return
 
-        if self.current_bin_type_key == "D-3":
-            script = "export_d3_data.py"
-        else:
-            script = "export_digivice_data.py"
+        tmp_dir = tempfile.mkdtemp(prefix="d3_partner_table_gui_")
+        tmp_csv = os.path.join(tmp_dir, "d3_partner_table_tmp.csv")
 
+        script = "export_d3_partner_table.py"
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             return
 
-        tmp_dir = tempfile.mkdtemp(prefix="digimon_gui_")
-        tmp_csv = os.path.join(tmp_dir, "digimon_tmp.csv")
+        dlg = BusyDialog("Refresh", "Please wait...\nLoading partner table from D3.bin.", self)
 
-        desc = "Extract Digimon stats to table"
-        self.status_label.setText("Extracting Digimon stats to load into table...")
-
-        dlg = BusyDialog("Load Data into Table", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
                 self.current_bin_path,
-                self.replace_map_path,
                 tmp_csv,
             ],
-            desc=desc,
+            desc="Refresh",
         )
+
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        worker.progress.connect(lambda frac, msg: self.status_label.setText(self._short_status(msg)))
-
-        def finished(ok: bool, msg: str, csv_path=tmp_csv, temp_dir=tmp_dir):
+        def done(ok, msg):
             dlg.accept()
             thread.quit()
             thread.wait()
+
             if ok:
                 try:
-                    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
-                        reader = csv.DictReader(f)
-                        rows = list(reader)
-                    self.populate_table_from_rows(rows)
+                    self.name_map = self.build_name_map_from_bin()
+                    self.populate_table_from_csv(tmp_csv)
                     self.save_edits_btn.setEnabled(True)
-                    self.status_label.setText("Digimon stats loaded into table.")
+                    self.status_label.setText("Partner table loaded.")
                 except Exception as e:
-                    QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to read temp CSV: {e}")
-                    self.status_label.setText("CSV read error.")
+                    QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to Refresh:\n{e}")
+                    self.status_label.setText("Partner table load failed.")
             else:
                 self.status_label.setText(self._short_status(msg))
-                QtWidgets.QMessageBox.critical(self, "Extract error", msg)
-            shutil.rmtree(temp_dir, ignore_errors=True)
+                QtWidgets.QMessageBox.critical(self, "Refresh Error", msg)
 
-        worker.finished.connect(finished)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
+        worker.finished.connect(done)
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
 
-    def populate_table_from_rows(self, rows: List[dict]):
+    # ---------------- table population ----------------
+
+    def populate_table_from_csv(self, csv_path):
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+        headers = [
+            "digimon_id",
+            "string_index",
+            "stage",
+            "jogress_win_partner_id",
+            "sprite_index",
+            "win_requirement_for_next_evo",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "evo_animation3_id",
+            "evo_animation4_id",
+            "evo_animation5_id",
+            "background_music_during_battle_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+        ]
+
+        pretty = [
+            "digimon_id",
+            "Name",
+            "stage",
+            "slot_type",
+            "sprite_index",
+            "wins_to_evo",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "evo_animation3_id",
+            "evo_animation4_id",
+            "evo_animation5_id",
+            "background_music_during_battle_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+        ]
+
         self.table.clear()
-        self.table.setRowCount(0)
-        self.table.setColumnCount(0)
-        # Hide string_index column (col 0)
-        self.table.setColumnHidden(0, True)
-        self.name_caps = []
-        self.dv_stage_values = []
-        self.original_names = []
-        self._last_forbidden_rows = []
+        self.table.setRowCount(len(rows))
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(pretty)
+        self.partner_hidden_rows = {}
 
-        if not rows:
-            return
+        for r_idx, row in enumerate(rows):
+            # digimon_id readonly
+            item = QtWidgets.QTableWidgetItem(str(row.get("digimon_id", "")))
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            item.setBackground(QtGui.QColor(70, 70, 70))
+            item.setForeground(QtGui.QColor(200, 200, 200))
+            self.table.setItem(r_idx, 0, item)
 
-        if self.current_bin_type_key == "D-3":
-            headers = ["string_index", "DigimonName", "Stage", "Power", "Unknown1", "Unknown2"]
-            pretty = ["string_index", "Name", "Stage", "Power", "Unknown1", "Unknown2"]
-            self.table.setColumnCount(len(headers))
-            self.table.setHorizontalHeaderLabels(pretty)
+            self.partner_hidden_rows[r_idx] = {
+                "special_unlock": str(row.get("special_unlock", "0")),
+            }
 
-            self.table.setRowCount(len(rows))
-            for r_idx, row in enumerate(rows):
-                name = row.get("DigimonName", "")
-                self.name_caps.append(len(name))
-                self.original_names.append(name)
+            # name / string_index dropdown
+            self.table.setCellWidget(
+                r_idx,
+                1,
+                self.make_combo(self.name_map, row.get("string_index", "")),
+            )
 
-                for c_idx, key in enumerate(headers):
-                    val = str(row.get(key, ""))
-                    item = QtWidgets.QTableWidgetItem(val)
-                    if key == "string_index":
-                        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-                    self.table.setItem(r_idx, c_idx, item)
+            self.table.setCellWidget(r_idx, 2, self.make_spin(row.get("stage", 0)))
 
-            # Hide Unknown1 and Unknown2 columns
-            self.table.setColumnHidden(4, True)
-            self.table.setColumnHidden(5, True)
+            self.table.setCellWidget(
+                r_idx,
+                3,
+                self.make_combo(self.jogress_map, row.get("jogress_win_partner_id", "")),
+            )
 
-        else:  # Digivice
-            headers_all = ["string_index", "DigimonName", "Stage", "Power", "SlotIndex", "OffsetHex"]
-            display_headers = ["string_index", "DigimonName", "Power", "SlotIndex", "OffsetHex"]
-            pretty = ["string_index", "Name", "Power", "SlotIndex", "OffsetHex"]
-            self.table.setColumnCount(len(display_headers))
-            self.table.setHorizontalHeaderLabels(pretty)
+            self.table.setCellWidget(
+                r_idx,
+                4,
+                self.make_combo(self.sprite_map, row.get("sprite_index", "")),
+            )
 
-            self.table.setRowCount(len(rows))
-            for r_idx, row in enumerate(rows):
-                name = row.get("DigimonName", "")
-                self.name_caps.append(len(name))
-                self.original_names.append(name)
-                self.dv_stage_values.append(row.get("Stage", "0"))
+            self.table.setCellWidget(
+                r_idx,
+                5,
+                self.make_spin(row.get("win_requirement_for_next_evo", 0)),
+            )
 
-                for c_idx, key in enumerate(display_headers):
-                    val = str(row.get(key, ""))
-                    item = QtWidgets.QTableWidgetItem(val)
-                    if key in ("string_index", "SlotIndex", "OffsetHex"):
-                        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-                    self.table.setItem(r_idx, c_idx, item)
+            for i in range(5):
+                key = f"evo_animation{i + 1}_id"
+                self.table.setCellWidget(
+                    r_idx,
+                    6 + i,
+                    self.make_combo(self.evo_map, row.get(key, "")),
+                )
 
-            # Hide SlotIndex and OffsetHex columns for Digivice
-            # display_headers index: 0=string_index,1=Name,2=Power,3=SlotIndex,4=OffsetHex
-            self.table.setColumnHidden(3, True)
-            self.table.setColumnHidden(4, True)
+            self.table.setCellWidget(
+                r_idx,
+                11,
+                self.make_combo(self.bgm_map, row.get("background_music_during_battle_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                12,
+                self.make_combo(self.voice_map, row.get("attack_voice_sound_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                13,
+                self.make_spin(row.get("attack_shot_sprite_index", 0)),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                14,
+                self.make_combo(self.shot_sound_map, row.get("attack_shot_sound_id", "")),
+            )
 
         self.table.resizeColumnsToContents()
+
+        # Keep Name column smaller
+        self.table.setColumnWidth(1, 160)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.ResizeMode.Fixed
+        )
+
+    # ---------------- save/import ----------------
 
     def on_save_edits_clicked(self):
         if not self.require_all():
             return
+
         if self.table.rowCount() == 0:
-            QtWidgets.QMessageBox.information(self, "No data", "There is no table data to save.")
+            QtWidgets.QMessageBox.information(self, "No data", "There is no partner table loaded.")
             return
 
-        # Name rule:
-        # - If forbidden(new): don't update name (use old), stats update.
-        # - If len(new) > len(old): don't update name (use old), stats update.
-        # - If len(new) < len(old): pad with '_' to match old length.
-        # - If len(new) == len(old): use new as-is.
+        rows_out = []
 
-        def has_forbidden(s: str) -> bool:
-            return any(c in FORBIDDEN_CHARS for c in s)
+        for r in range(self.table.rowCount()):
+            row = {}
 
-        self._last_forbidden_rows = []
-        rows_out: List[dict] = []
+            row["meta_offset"] = ""
+            row["data_offset"] = ""
 
-        if self.current_bin_type_key == "D-3":
-            idx_col = 0
-            name_col = 1
-            stage_col = 2
-            power_col = 3
-            u1_col = 4
-            u2_col = 5
+            row["digimon_id"] = self.table.item(r, 0).text()
+            row["string_index"] = self.table.cellWidget(r, 1).currentData()
+            row["stage"] = self.table.cellWidget(r, 2).value()
 
-            for r in range(self.table.rowCount()):
-                item_name = self.table.item(r, name_col)
-                new_name = item_name.text() if item_name is not None else ""
-                old_name = self.original_names[r] if r < len(self.original_names) else new_name
+            hidden = self.partner_hidden_rows.get(r, {})
+            row["jogress_win_partner_id"] = self.table.cellWidget(r, 3).currentData()
+            row["sprite_index"] = self.table.cellWidget(r, 4).currentData()
+            row["special_unlock"] = hidden.get("special_unlock", "0")
 
-                # forbidden check
-                if has_forbidden(new_name):
-                    name_to_write = old_name
-                    self._last_forbidden_rows.append(r + 1)
-                else:
-                    L_old = len(old_name)
-                    L_new = len(new_name)
-                    if L_new > L_old:
-                        name_to_write = old_name  # don't update name
-                    elif L_new < L_old:
-                        name_to_write = new_name + ("_" * (L_old - L_new))
-                    else:
-                        name_to_write = new_name
+            row["win_requirement_for_next_evo"] = self.table.cellWidget(r, 5).value()
 
-                row_dict = {
-                    "string_index": self.table.item(r, idx_col).text() if self.table.item(r, idx_col) else "",
-                    "DigimonName": name_to_write,
-                    "Stage": self.table.item(r, stage_col).text() if self.table.item(r, stage_col) else "",
-                    "Power": self.table.item(r, power_col).text() if self.table.item(r, power_col) else "",
-                    "Unknown1": self.table.item(r, u1_col).text() if self.table.item(r, u1_col) else "",
-                    "Unknown2": self.table.item(r, u2_col).text() if self.table.item(r, u2_col) else "",
-                }
-                rows_out.append(row_dict)
+            for i in range(5):
+                row[f"evo_animation{i + 1}_id"] = self.table.cellWidget(r, 6 + i).currentData()
 
-        else:  # Digivice
-            idx_col = 0
-            name_col = 1
-            power_col = 2
-            slot_col = 3
-            off_col = 4
+            row["background_music_during_battle_id"] = self.table.cellWidget(r, 11).currentData()
+            row["attack_voice_sound_id"] = self.table.cellWidget(r, 12).currentData()
+            row["attack_shot_sprite_index"] = self.table.cellWidget(r, 13).value()
+            row["attack_shot_sound_id"] = self.table.cellWidget(r, 14).currentData()
 
-            for r in range(self.table.rowCount()):
-                new_name = self.table.item(r, name_col).text() if self.table.item(r, name_col) else ""
-                old_name = self.original_names[r] if r < len(self.original_names) else new_name
+            rows_out.append(row)
 
-                # Forbidden check
-                if any(c in FORBIDDEN_CHARS for c in new_name):
-                    name_to_write = old_name
-                    self._last_forbidden_rows.append(r + 1)
-                else:
-                    if len(new_name) > len(old_name):
-                        name_to_write = old_name
-                    elif len(new_name) < len(old_name):
-                        name_to_write = new_name + "_" * (len(old_name) - len(new_name))
-                    else:
-                        name_to_write = new_name
+        fieldnames = [
+            "meta_offset",
+            "data_offset",
+            "stage",
+            "digimon_id",
+            "jogress_win_partner_id",
+            "win_requirement_for_next_evo",
+            "sprite_index",
+            "string_index",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "evo_animation3_id",
+            "evo_animation4_id",
+            "evo_animation5_id",
+            "background_music_during_battle_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+            "special_unlock",
+        ]
 
-                stage_val = self.dv_stage_values[r] if r < len(self.dv_stage_values) else "0"
-
-                rows_out.append({
-                    "string_index": self.table.item(r, idx_col).text() if self.table.item(r, idx_col) else "",
-                    "DigimonName": name_to_write,
-                    "Stage": stage_val,
-                    "Power": self.table.item(r, power_col).text() if self.table.item(r, power_col) else "",
-                    "SlotIndex": self.table.item(r, slot_col).text() if self.table.item(r, slot_col) else "",
-                    "OffsetHex": self.table.item(r, off_col).text() if self.table.item(r, off_col) else "",
-                })
-
-        # Write temp CSV for import script
-        tmp_dir = tempfile.mkdtemp(prefix="digimon_gui_save_")
-        tmp_csv = os.path.join(tmp_dir, "digimon_edit.csv")
-
-        if self.current_bin_type_key == "D-3":
-            fieldnames = ["string_index", "DigimonName", "Stage", "Power", "Unknown1", "Unknown2"]
-            script = "import_d3_data.py"
-        else:
-            fieldnames = ["string_index", "DigimonName", "Stage", "Power", "SlotIndex", "OffsetHex"]
-            script = "import_digivice_data.py"
+        tmp_dir = tempfile.mkdtemp(prefix="d3_partner_table_save_")
+        tmp_csv = os.path.join(tmp_dir, "d3_partner_table_edit.csv")
 
         try:
             with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=fieldnames)
-                w.writeheader()
-                for row in rows_out:
-                    w.writerow(row)
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows_out)
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to write temp CSV: {e}")
-            self.status_label.setText("Save CSV error.")
             shutil.rmtree(tmp_dir, ignore_errors=True)
+            QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to write temp CSV:\n{e}")
             return
 
+        self.run_import_script(tmp_csv, reload_after=True, cleanup_dir=tmp_dir)
+
+    def on_reset_clicked(self):
+        if not self.require_all():
+            return
+
+        original_csv = os.path.join(SCRIPT_DIR, "d3_partner_table_original.csv")
+
+        if not os.path.isfile(original_csv):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Missing file",
+                "d3_partner_table_original.csv not found next to this GUI."
+            )
+            return
+
+        res = QtWidgets.QMessageBox.warning(
+            self,
+            "Reset to Original?",
+            (
+                "This will overwrite ALL partner table data in the BIN\n"
+                "with the original .bin file values.\n\n"
+                "You will not lose game progress. But partner table modding changes will be lost.\n\n"
+                "Continue?"
+            ),
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+
+        if res != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        # Reuse existing import pipeline
+        self.run_import_script(original_csv, reload_after=True)
+
+    def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
+        script = "import_d3_partner_table.py"
         script_path = os.path.join(SCRIPT_DIR, script)
+
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
             return
 
-        self.status_label.setText("Applying edits to BIN...")
-        self.save_edits_btn.setEnabled(False)
+        dlg = BusyDialog("Import Partner Table", "Please wait...\nApplying partner table changes to BIN.", self)
 
-        dlg = BusyDialog("Save Edits to BIN", "Please wait...\nThis may take a while (8 - 15 mins).", self)
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
                 self.current_bin_path,
-                tmp_csv,
-                self.replace_map_path,
-                "--out", self.current_bin_path,
+                csv_path,
+                self.current_bin_path,
             ],
-            desc="Apply Data changes",
+            desc="Import Partner Table",
         )
+
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        worker.progress.connect(lambda frac, msg: self.status_label.setText(self._short_status(msg)))
-
-        def on_done(ok: bool, msg: str):
+        def done(ok, msg):
             dlg.accept()
             thread.quit()
             thread.wait()
-            self.save_edits_btn.setEnabled(True)
 
-            # Status line may mention names skipped rows (status only, not popup)
-            if self._last_forbidden_rows:
-                status_msg = (
-                    msg
-                    + " (Names skipped for rows: "
-                    + ", ".join(str(r) for r in self._last_forbidden_rows)
-                    + ")"
-                )
-            else:
-                status_msg = msg
+            self.status_label.setText(self._short_status(msg))
 
-            self.status_label.setText(self._short_status(status_msg))
-
-            # Popup should NOT include skipped-rows text
             if ok:
-                QtWidgets.QMessageBox.information(self, "Data changes", msg)
-                self.on_load_table_clicked()
+                QtWidgets.QMessageBox.information(self, "Partner Table Imported", msg)
+                if reload_after:
+                    self.on_load_table_clicked()
             else:
-                QtWidgets.QMessageBox.critical(self, "Data changes error", msg)
+                QtWidgets.QMessageBox.critical(self, "Partner Table Import Error", msg)
 
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
 
-        worker.finished.connect(on_done)
-
+        worker.finished.connect(done)
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
 
-# ----------------- NPC Names tab -----------------
-class NPCNamesTab(DigimonStatsTab):
+# ----------------- Names tab -----------------
+# ----------------- Names tab -----------------
+class NamesTab(QtWidgets.QWidget):
     """
-    NPC Names tab — identical to DigimonStatsTab but uses:
-      import_d3_npc_names.py
-      export_d3_npc_names.py
-      import_digivice_npc_names.py
-      export_digivice_npc_names.py
-
-    The CSV contains ONLY:
-        string_index, name
+    Names tab — edits ALL D-3 names using:
+        export_d3_names.py
+        import_d3_names.py
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.current_bin_type_key = None
+        self.current_bin_path = None
         self.replace_map_path = os.path.join(SCRIPT_DIR, "replace_map.csv")
-        self.status_label.setText("NPC Names Ready.")
 
-        # Change tab labels
-        self.export_btn.setText("Export NPC Names to CSV")
-        self.import_btn.setText("Import NPC Names from CSV")
-        self.load_table_btn.setText("Load NPC Names into Table")
-        self.save_edits_btn.setText("Save NPC Name Edits to BIN")
+        self.original_names = []
+        self._last_forbidden_indexes = []
 
-        # CSV default
-        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "npc_names.csv")
-        self.export_csv_edit.setText(default_csv)
+        self._build_ui()
 
-    # --------------------------
-    # Override script selection
-    # --------------------------
+    def _build_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
 
-    def _get_export_script(self):
-        return "export_d3_npc_names.py" if self.current_bin_type_key == "D-3" else "export_digivice_npc_names.py"
+        # ---------- BIN Selection ----------
+        top_box = QtWidgets.QGroupBox("BIN Selection")
+        top = QtWidgets.QHBoxLayout(top_box)
 
-    def _get_import_script(self):
-        return "import_d3_npc_names.py" if self.current_bin_type_key == "D-3" else "import_digivice_npc_names.py"
+        self.bin_type_combo = NoWheelComboBox()
+        self.bin_type_combo.addItem("Select BIN type...")
+        for key, info in BIN_TYPES.items():
+            self.bin_type_combo.addItem(info["label"], key)
 
-    # --------------------------
-    # Override export
-    # --------------------------
+        self.bin_path_edit = QtWidgets.QLineEdit()
+        self.bin_path_edit.setReadOnly(True)
+        self.bin_btn = QtWidgets.QPushButton("Select .bin")
 
-    def on_export_clicked(self):
+        top.addWidget(QtWidgets.QLabel("Type:"))
+        top.addWidget(self.bin_type_combo)
+        top.addSpacing(20)
+        top.addWidget(QtWidgets.QLabel("BIN:"))
+        top.addWidget(self.bin_path_edit)
+        top.addWidget(self.bin_btn)
+
+        layout.addWidget(top_box)
+
+        # ---------- Controls ----------
+        io_box = QtWidgets.QGroupBox("Names CSV & In-App Editing")
+        io_layout = QtWidgets.QGridLayout(io_box)
+
+        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "d3_names.csv")
+        self.export_csv_edit = QtWidgets.QLineEdit(default_csv)
+
+        self.export_btn = QtWidgets.QPushButton("Export Names to CSV")
+        self.export_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
+
+        self.import_btn = QtWidgets.QPushButton("Import Names from CSV")
+        self.import_btn.setStyleSheet("background-color:#0006b1;color:white;font-weight:600;font-size:14pt;")
+
+        self.load_table_btn = QtWidgets.QPushButton("Refresh")
+        self.load_table_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+
+        self.reset_btn = QtWidgets.QPushButton("Reset to Original ?")
+        self.reset_btn.setStyleSheet("background-color:#960202;color:white;font-weight:600;font-size:14pt;")
+
+        self.save_edits_btn = QtWidgets.QPushButton("Save Name Edits to BIN")
+        self.save_edits_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
+        self.save_edits_btn.setEnabled(False)
+
+        io_layout.addWidget(QtWidgets.QLabel("Export CSV path:"), 0, 0)
+        io_layout.addWidget(self.export_csv_edit, 0, 1)
+        io_layout.addWidget(self.export_btn, 0, 2)
+
+        io_layout.addWidget(self.load_table_btn, 1, 0)
+        io_layout.addWidget(self.reset_btn, 1, 1)
+        io_layout.addWidget(self.save_edits_btn, 1, 2)
+        io_layout.addWidget(self.import_btn, 1, 3)
+
+        layout.addWidget(io_box)
+
+        # ---------- Table ----------
+        self.table = QtWidgets.QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["string_index", "Name"])
+        # self.table.setColumnHidden(0, True)
+        self.table.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked |
+            QtWidgets.QAbstractItemView.EditTrigger.SelectedClicked |
+            QtWidgets.QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+
+        layout.addWidget(self.table, 1)
+
+        # ---------- Status ----------
+        self.status_label = QtWidgets.QLabel("Ready.")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        # ---------- Signals ----------
+        self.bin_type_combo.currentIndexChanged.connect(self.on_type_changed)
+        self.bin_btn.clicked.connect(self.pick_bin)
+        self.export_btn.clicked.connect(self.export_names)
+        self.import_btn.clicked.connect(self.import_names)
+        self.load_table_btn.clicked.connect(self.load_names_clicked)
+        self.save_edits_btn.clicked.connect(self.save_edits_clicked)
+        self.reset_btn.clicked.connect(self.on_reset_clicked)
+
+    def _short_status(self, msg: str) -> str:
+        return msg if len(msg) <= 100 else msg[:97] + "..."
+
+    def require_all(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Missing type", "Select BIN type first.")
+            return False
+        if self.current_bin_type_key != "D-3":
+            QtWidgets.QMessageBox.warning(self, "D-3 only", "Names editing is currently enabled only for D-3.")
+            return False
+        if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
+            QtWidgets.QMessageBox.warning(self, "Missing BIN", "Select a valid .bin file.")
+            return False
+        if not self.replace_map_path or not os.path.isfile(self.replace_map_path):
+            QtWidgets.QMessageBox.warning(self, "Missing replace_map.csv", "replace_map.csv was not found.")
+            return False
+        return True
+
+    def on_type_changed(self, idx):
+        if idx <= 0:
+            self.current_bin_type_key = None
+        else:
+            self.current_bin_type_key = self.bin_type_combo.itemData(idx)
+
+    def pick_bin(self):
+        if not self.current_bin_type_key:
+            QtWidgets.QMessageBox.warning(self, "Type required", "Select BIN type first.")
+            return
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select .bin", "", "BIN files (*.bin);;All files (*)")
+        if not path:
+            return
+
+        self.current_bin_path = path
+        self.bin_path_edit.setText(path)
+
+        # Auto-load table after selecting BIN
+        self.load_names_clicked()
+
+    def export_names(self):
         if not self.require_all():
             return
 
@@ -1577,221 +2399,300 @@ class NPCNamesTab(DigimonStatsTab):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        script = self._get_export_script()
+        script = "export_d3_names.py"
         script_path = os.path.join(SCRIPT_DIR, script)
-
         if not os.path.isfile(script_path):
-            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found.")
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
             return
 
-        # Run script
-        dlg = BusyDialog("Export NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        dlg = BusyDialog("Export Names", "Please wait...\nThis should be faster than the old NPC exporter.", self)
+
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[self.current_bin_path, self.replace_map_path, out_csv],
-            desc="Export NPC names"
+            desc="Export Names"
         )
 
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        worker.finished.connect(lambda ok, msg: self._export_done(ok, msg, dlg, thread))
+        def done(ok, msg):
+            dlg.accept()
+            thread.quit()
+            thread.wait()
+
+            self.status_label.setText(self._short_status(msg))
+
+            if ok:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Names Exported",
+                    'Names were exported to "d3_names.csv" on your Desktop.'
+                )
+                try:
+                    self.populate_table_from_csv(out_csv)
+                    self.save_edits_btn.setEnabled(True)
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(self, "Table load warning", f"Export worked, but table load failed:\n{e}")
+            else:
+                QtWidgets.QMessageBox.critical(self, "Export Names Error", msg)
+
+        worker.finished.connect(done)
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
 
-    def _export_done(self, ok, msg, dlg, thread):
-        dlg.accept()
-        thread.quit()
-        thread.wait()
-
-        if ok:
-            QtWidgets.QMessageBox.information(
-                self,
-                "NPC Names Exported",
-                "NPC names exported to npc_names.csv on your Desktop."
-            )
-        else:
-            QtWidgets.QMessageBox.critical(self, "NPC Export Error", msg)
-
-    # --------------------------
-    # Override import
-    # --------------------------
-
-    def on_import_clicked(self):
+    def import_names(self):
         if not self.require_all():
             return
 
         csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Select npc_names.csv", "", "CSV files (*.csv)"
+            self,
+            "Select d3_names.csv",
+            "",
+            "CSV files (*.csv);;All files (*)"
         )
         if not csv_path:
             return
 
-        script = self._get_import_script()
+        if not os.path.isfile(csv_path):
+            QtWidgets.QMessageBox.warning(self, "Invalid CSV", "Selected CSV file does not exist.")
+            return
 
-        dlg = BusyDialog("Import NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
-        worker = InternalScriptWorker(
-            script_name=script,
-            script_args=[self.current_bin_path, csv_path, self.replace_map_path, "--out", self.current_bin_path],
-            desc="Import NPC names"
-        )
+        self.run_import_script(csv_path, reload_after=True)
 
-        thread = QtCore.QThread(self)
-        worker.moveToThread(thread)
-
-        worker.finished.connect(lambda ok, msg: self._import_done(ok, msg, dlg, thread))
-        thread.started.connect(worker.run)
-        thread.start()
-        dlg.exec()
-
-    def _import_done(self, ok, msg, dlg, thread):
-        dlg.accept()
-        thread.quit()
-        thread.wait()
-        if ok:
-            QtWidgets.QMessageBox.information(self, "NPC Names Imported", msg)
-            self.on_load_table_clicked()
-        else:
-            QtWidgets.QMessageBox.critical(self, "NPC Import Error", msg)
-
-    # --------------------------
-    # Override table loader
-    # --------------------------
-
-    def on_load_table_clicked(self):
+    def load_names_clicked(self):
         if not self.require_all():
             return
 
-        script = self._get_export_script()
-        tmp_dir = tempfile.mkdtemp(prefix="npc_gui_")
-        tmp_csv = os.path.join(tmp_dir, "npc_tmp.csv")
+        tmp_dir = tempfile.mkdtemp(prefix="names_gui_")
+        tmp_csv = os.path.join(tmp_dir, "d3_names_tmp.csv")
 
-        dlg = BusyDialog("Load NPC Names", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+        script = "export_d3_names.py"
+        script_path = os.path.join(SCRIPT_DIR, script)
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
+
+        dlg = BusyDialog("Refresh", "Please wait...\nLoading names from D3.bin.", self)
+
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[self.current_bin_path, self.replace_map_path, tmp_csv],
-            desc="Extract NPC names"
+            desc="Refresh"
         )
 
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        def finished(ok, msg):
+        def done(ok, msg):
             dlg.accept()
             thread.quit()
             thread.wait()
 
             if ok:
                 try:
-                    with open(tmp_csv, "r", encoding="utf-8-sig") as f:
-                        rows = list(csv.DictReader(f))
-                    self.populate_table(rows)
+                    self.populate_table_from_csv(tmp_csv)
+                    self.save_edits_btn.setEnabled(True)
+                    self.status_label.setText("Names loaded into table.")
                 except Exception as e:
-                    QtWidgets.QMessageBox.critical(self, "NPC CSV Error", str(e))
+                    QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to load names table:\n{e}")
+                    self.status_label.setText("Name table load failed.")
             else:
-                QtWidgets.QMessageBox.critical(self, "NPC Load Error", msg)
+                self.status_label.setText(self._short_status(msg))
+                QtWidgets.QMessageBox.critical(self, "Load Names Error", msg)
 
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        worker.finished.connect(finished)
+        worker.finished.connect(done)
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
 
-    # --------------------------
-    # Populate the table
-    # --------------------------
+    def populate_table_from_csv(self, csv_path):
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
 
-    def populate_table(self, rows):
         self.table.clear()
         self.table.setRowCount(len(rows))
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["string_index", "Name"])
-        self.table.setColumnHidden(0, True)  # hide string_index
+        # self.table.setColumnHidden(0, True)
 
         self.original_names = []
-        self.name_caps = []
 
         for r_idx, row in enumerate(rows):
-            idx = row["string_index"]
-            name = row["name"]
+            si = str(row.get("string_index", ""))
+            name = str(row.get("name", ""))
 
             self.original_names.append(name)
-            self.name_caps.append(len(name))
 
-            idx_item = QtWidgets.QTableWidgetItem(idx)
+            idx_item = QtWidgets.QTableWidgetItem(si)
             idx_item.setFlags(idx_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+            idx_item.setBackground(QtGui.QColor(70, 70, 70))
+            idx_item.setForeground(QtGui.QColor(200, 200, 200))
+            self.table.setColumnWidth(0, 80)
+            self.table.horizontalHeader().setSectionResizeMode(
+                0, QtWidgets.QHeaderView.ResizeMode.Fixed
+            )
+
+            name_item = QtWidgets.QTableWidgetItem(name)
 
             self.table.setItem(r_idx, 0, idx_item)
-            self.table.setItem(r_idx, 1, QtWidgets.QTableWidgetItem(name))
+            self.table.setItem(r_idx, 1, name_item)
+        
+        for r in range(self.table.rowCount()):
+            idx_item = self.table.item(r, 0)  # string_index column
+            if idx_item:
+                self.table.setVerticalHeaderItem(
+                    r,
+                    QtWidgets.QTableWidgetItem(idx_item.text())
+                )
 
         self.table.resizeColumnsToContents()
-        self.save_edits_btn.setEnabled(True)
 
-    # --------------------------
-    # Save edits to BIN
-    # --------------------------
-
-    def on_save_edits_clicked(self):
+    def save_edits_clicked(self):
         if not self.require_all():
             return
 
+        if self.table.rowCount() == 0:
+            QtWidgets.QMessageBox.information(self, "No names", "There are no names loaded in the table.")
+            return
+
         rows_out = []
-        self._last_forbidden_rows = []
+        self._last_forbidden_indexes = []
 
         for r in range(self.table.rowCount()):
-            idx = self.table.item(r, 0).text()
-            new_name = self.table.item(r, 1).text()
-            old_name = self.original_names[r]
+            idx_item = self.table.item(r, 0)
+            name_item = self.table.item(r, 1)
 
+            si = idx_item.text() if idx_item else ""
+            new_name = name_item.text() if name_item else ""
+            old_name = self.original_names[r] if r < len(self.original_names) else new_name
+
+            # Same GUI-side safety as your old table:
+            # forbidden -> keep old
+            # longer -> keep old
+            # shorter -> pad with underscores
             if any(c in FORBIDDEN_CHARS for c in new_name):
                 name_to_write = old_name
-                self._last_forbidden_rows.append(r + 1)
+                if new_name != old_name:
+                    self._last_forbidden_indexes.append(si)
             else:
                 if len(new_name) > len(old_name):
                     name_to_write = old_name
                 elif len(new_name) < len(old_name):
-                    name_to_write = new_name + "_" * (len(old_name) - len(new_name))
+                    name_to_write = new_name + ("_" * (len(old_name) - len(new_name)))
                 else:
                     name_to_write = new_name
 
-            rows_out.append({"string_index": idx, "name": name_to_write})
+            rows_out.append({
+                "string_index": si,
+                "name": name_to_write,
+            })
 
-        # write temp CSV
-        tmp_dir = tempfile.mkdtemp(prefix="npc_save_")
-        tmp_csv = os.path.join(tmp_dir, "npc_edit.csv")
+        tmp_dir = tempfile.mkdtemp(prefix="names_save_")
+        tmp_csv = os.path.join(tmp_dir, "d3_names_edit.csv")
 
-        with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=["string_index", "name"])
-            w.writeheader()
-            w.writerows(rows_out)
+        try:
+            with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=["string_index", "name"])
+                writer.writeheader()
+                writer.writerows(rows_out)
+        except Exception as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            QtWidgets.QMessageBox.critical(self, "CSV error", f"Failed to write temp CSV:\n{e}")
+            return
 
-        script = self._get_import_script()
+        self.run_import_script(tmp_csv, reload_after=True, cleanup_dir=tmp_dir)
 
-        dlg = BusyDialog("Save NPC Edits", "Please wait...\nThis may take a while (8 - 15 mins).", self)
+    def on_reset_clicked(self):
+        if not self.require_all():
+            return
+
+        original_csv = os.path.join(SCRIPT_DIR, "d3_names_original.csv")
+
+        if not os.path.isfile(original_csv):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Missing file",
+                "d3_names_original.csv not found next to this GUI."
+            )
+            return
+
+        res = QtWidgets.QMessageBox.warning(
+            self,
+            "Reset Names to Original?",
+            (
+                "This will overwrite ALL D-3 names in this .bin file\n"
+                "with the baseline names from the original .bin file.\n\n"
+                "Note that this will not reset the names with forbidden characters.\n\n"
+                "You will not lose game progress. But name modding changes will be lost.\n\n"
+                "Continue?"
+            ),
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+        )
+
+        if res != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        self.run_import_script(original_csv, reload_after=True)
+
+    def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
+        script = "import_d3_names.py"
+        script_path = os.path.join(SCRIPT_DIR, script)
+
+        if not os.path.isfile(script_path):
+            QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
+            return
+
+        dlg = BusyDialog("Import Names", "Please wait...\nApplying name changes to BIN.", self)
+
         worker = InternalScriptWorker(
             script_name=script,
-            script_args=[self.current_bin_path, tmp_csv, self.replace_map_path, "--out", self.current_bin_path],
-            desc="Apply NPC changes"
+            script_args=[
+                self.current_bin_path,
+                csv_path,
+                self.replace_map_path,
+                "--out",
+                self.current_bin_path,
+            ],
+            desc="Import Names"
         )
 
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
-        def finish(ok, msg):
+        def done(ok, msg):
             dlg.accept()
             thread.quit()
             thread.wait()
+
+            self.status_label.setText(self._short_status(msg))
+
             if ok:
-                QtWidgets.QMessageBox.information(self, "NPC Edits Saved", msg)
-                self.on_load_table_clicked()
+                extra = ""
+                if self._last_forbidden_indexes:
+                    extra = (
+                        "\n\nOnly letters and numbers are allowed in names. "
+                        "These string_index values were skipped:\n"
+                        + ", ".join(str(x) for x in self._last_forbidden_indexes)
+                    )
+
+                QtWidgets.QMessageBox.information(self, "Names Imported", msg + extra)
+
+                if reload_after:
+                    self.load_names_clicked()
             else:
-                QtWidgets.QMessageBox.critical(self, "NPC Save Error", msg)
+                QtWidgets.QMessageBox.critical(self, "Import Names Error", msg)
 
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
 
-        worker.finished.connect(finish)
+        worker.finished.connect(done)
         thread.started.connect(worker.run)
         thread.start()
         dlg.exec()
@@ -1818,7 +2719,7 @@ class SoundsTab(QtWidgets.QWidget):
         bin_box = QtWidgets.QGroupBox("BIN Selection")
         bin_layout = QtWidgets.QHBoxLayout(bin_box)
 
-        self.bin_type_combo = QtWidgets.QComboBox()
+        self.bin_type_combo = NoWheelComboBox()
         self.bin_type_combo.addItem("Select BIN type...")
         for key, info in BIN_TYPES.items():
             self.bin_type_combo.addItem(info["label"], key)
@@ -2051,7 +2952,7 @@ class DeviceSoundsTab(QtWidgets.QWidget):
         bin_box = QtWidgets.QGroupBox("BIN Selection")
         h = QtWidgets.QHBoxLayout(bin_box)
 
-        self.bin_type_combo = QtWidgets.QComboBox()
+        self.bin_type_combo = NoWheelComboBox()
         self.bin_type_combo.addItem("Select BIN type...")
         for key, info in BIN_TYPES.items():
             self.bin_type_combo.addItem(info["label"], key)
@@ -2273,6 +3174,43 @@ def apply_dark_palette(app: QtWidgets.QApplication):
     palette.setColor(QtGui.QPalette.ColorGroup.Disabled, QtGui.QPalette.ColorRole.ButtonText, disabled_text)
 
     app.setPalette(palette)
+    app.setStyleSheet("""
+        QScrollBar:vertical {
+            background: #2b2b2b;
+            width: 14px;
+            margin: 0px;
+        }
+        QScrollBar::handle:vertical {
+            background: #6ec6ff;        /* light blue */
+            min-height: 24px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #42a5f5;        /* slightly darker blue on hover */
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+
+        QScrollBar:horizontal {
+            background: #2b2b2b;
+            height: 14px;
+            margin: 0px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #6ec6ff;        /* light blue */
+            min-width: 24px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background: #42a5f5;        /* darker on hover */
+        }
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {
+            width: 0px;
+        }
+        """)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -2283,16 +3221,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         tabs = QtWidgets.QTabWidget()
         self.sprites_tab = SpritesTab(self)
-        self.partner_tab = DigimonStatsTab(self)
-        self.npc_tab = NPCNamesTab(self)
+        self.names_tab = NamesTab(self)
+        self.link_battle_tab = LinkBattleTableTab(self)
+        self.partner_tab = PartnerTableTab(self)
         self.sounds_tab = SoundsTab(self)
-        self.device_sounds_tab = DeviceSoundsTab(self)
 
         tabs.addTab(self.sprites_tab, "Sprites")
-        tabs.addTab(self.partner_tab, "Digimon Stats")
-        tabs.addTab(self.npc_tab, "NPC Names")
+        tabs.addTab(self.names_tab, "Names")
+        tabs.addTab(self.link_battle_tab, "Link Battle Table")
+        tabs.addTab(self.partner_tab, "Partner Table")
         tabs.addTab(self.sounds_tab, "Sounds")
-        tabs.addTab(self.device_sounds_tab, "Device Sounds")
 
         # show Sprites tab by default
         tabs.setCurrentIndex(0)
