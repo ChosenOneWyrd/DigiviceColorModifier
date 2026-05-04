@@ -186,6 +186,14 @@ import_sounds.py (Windows only) - Imports sounds from input_sounds folder to D3.
 export_sounds.py (Windows only) - Exports sounds from D3.bin to exported_sounds folder:
 
 		python export_sounds.py D3.bin exported_sounds d3_sound_map.csv
+
+import_device_sounds.py (Windows only) - Imports device sounds like boss alerts, beeps, clicks, etc frominput_sounds folder to D3.bin:
+
+		python import_device_sounds.py D3.bin D3.bin input_device_sounds
+
+export_device_sounds.py (Windows only) - Exports device sounds like boss alerts, beeps, clicks, etc from D3.bin to exported_device_sounds folder:
+
+		python export_device_sounds.py D3.bin exported_device_sounds
       
 ### BUILDING THE SOURCE CODE INTO .exe or .app
 1. Create a virtual environment using:<br/>

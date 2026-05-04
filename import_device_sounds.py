@@ -17,8 +17,8 @@ This importer matches export_device_sounds.py:
     * step_index = 0
 
 Usage:
-    python import_device_sounds.py D3.bin D3_patched.bin exported_device_sounds
-    python import_device_sounds.py D3.bin D3_patched.bin exported_device_sounds --dry-run
+    python import_device_sounds.py D3.bin D3_patched.bin input_device_sounds
+    python import_device_sounds.py D3.bin D3_patched.bin input_device_sounds --dry-run
 """
 
 import os
