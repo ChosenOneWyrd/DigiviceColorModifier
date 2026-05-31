@@ -2955,20 +2955,37 @@ class NamesTab(QtWidgets.QWidget):
 
     def _short_status(self, msg: str) -> str:
         return msg if len(msg) <= 100 else msg[:97] + "..."
+    
+    def get_names_export_script(self):
+        return "export_d3_names.py" if self.current_bin_type_key == "D-3" else "export_digivice_names.py"
+
+    def get_names_import_script(self):
+        return "import_d3_names.py" if self.current_bin_type_key == "D-3" else "import_digivice_names.py"
+
+    def get_names_original_csv(self):
+        return "d3_names_original.csv" if self.current_bin_type_key == "D-3" else "digivice_names_original.csv"
+
+    def get_default_names_csv(self):
+        fn = "d3_names.csv" if self.current_bin_type_key == "D-3" else "digivice_names.csv"
+        return os.path.join(os.path.expanduser("~"), "Desktop", fn)
 
     def require_all(self):
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Missing type", "Select BIN type first.")
             return False
-        if self.current_bin_type_key != "D-3":
-            QtWidgets.QMessageBox.warning(self, "D-3 only", "Names editing is currently enabled only for D-3.")
+
+        if self.current_bin_type_key not in ("D-3", "Digivice"):
+            QtWidgets.QMessageBox.warning(self, "Unsupported type", "Names editing is only enabled for D-3 and Digivice.")
             return False
+
         if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
             QtWidgets.QMessageBox.warning(self, "Missing BIN", "Select a valid .bin file.")
             return False
+
         if not self.replace_map_path or not os.path.isfile(self.replace_map_path):
             QtWidgets.QMessageBox.warning(self, "Missing replace_map.csv", "replace_map.csv was not found.")
             return False
+
         return True
 
     def on_type_changed(self, idx):
@@ -2976,6 +2993,9 @@ class NamesTab(QtWidgets.QWidget):
             self.current_bin_type_key = None
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(idx)
+
+        if self.current_bin_type_key in ("D-3", "Digivice"):
+            self.export_csv_edit.setText(self.get_default_names_csv())
 
     def pick_bin(self):
         if not self.current_bin_type_key:
@@ -3001,7 +3021,7 @@ class NamesTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        script = "export_d3_names.py"
+        script = self.get_names_export_script()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -3029,7 +3049,7 @@ class NamesTab(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Names Exported",
-                    'Names were exported to "d3_names.csv" on your Desktop.'
+                    f'Names were exported to "{os.path.basename(out_csv)}" on your Desktop.'
                 )
                 try:
                     self.populate_table_from_csv(out_csv)
@@ -3068,9 +3088,9 @@ class NamesTab(QtWidgets.QWidget):
             return
 
         tmp_dir = tempfile.mkdtemp(prefix="names_gui_")
-        tmp_csv = os.path.join(tmp_dir, "d3_names_tmp.csv")
+        tmp_csv = os.path.join(tmp_dir, "names_tmp.csv")
 
-        script = "export_d3_names.py"
+        script = self.get_names_export_script()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -3195,7 +3215,7 @@ class NamesTab(QtWidgets.QWidget):
             })
 
         tmp_dir = tempfile.mkdtemp(prefix="names_save_")
-        tmp_csv = os.path.join(tmp_dir, "d3_names_edit.csv")
+        tmp_csv = os.path.join(tmp_dir, "names_edit.csv")
 
         try:
             with open(tmp_csv, "w", encoding="utf-8", newline="") as f:
@@ -3213,13 +3233,13 @@ class NamesTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        original_csv = os.path.join(SCRIPT_DIR, "d3_names_original.csv")
+        original_csv = os.path.join(SCRIPT_DIR, self.get_names_original_csv())
 
         if not os.path.isfile(original_csv):
             QtWidgets.QMessageBox.critical(
                 self,
                 "Missing file",
-                "d3_names_original.csv not found next to this GUI."
+                f"{self.get_names_original_csv()} not found next to this GUI."
             )
             return
 
@@ -3227,7 +3247,7 @@ class NamesTab(QtWidgets.QWidget):
             self,
             "Reset Names to Original?",
             (
-                "This will overwrite ALL D-3 names in this .bin file\n"
+                "This will overwrite ALL names in this .bin file\n"
                 "with the baseline names from the original .bin file.\n\n"
                 "Note that this will not reset the names with forbidden characters.\n\n"
                 "You will not lose game progress. But name modding changes will be lost.\n\n"
@@ -3242,7 +3262,7 @@ class NamesTab(QtWidgets.QWidget):
         self.run_import_script(original_csv, reload_after=True)
 
     def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
-        script = "import_d3_names.py"
+        script = self.get_names_import_script()
         script_path = os.path.join(SCRIPT_DIR, script)
 
         if not os.path.isfile(script_path):
