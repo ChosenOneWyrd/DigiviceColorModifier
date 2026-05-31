@@ -983,6 +983,7 @@ class LinkBattleTableTab(QtWidgets.QWidget):
 
         self.name_map = {}
         self.sprite_map = {}
+        self.hidden_rows = {}
 
         self._build_ui()
         self.load_mappings()
@@ -1064,6 +1065,45 @@ class LinkBattleTableTab(QtWidgets.QWidget):
     def _short_status(self, msg):
         return msg if len(msg) <= 100 else msg[:97] + "..."
     
+    def get_export_script(self):
+        return (
+            "export_d3_link_battle_table.py"
+            if self.current_bin_type_key == "D-3"
+            else "export_digivice_link_battle_table.py"
+        )
+
+    def get_import_script(self):
+        return (
+            "import_d3_link_battle_table.py"
+            if self.current_bin_type_key == "D-3"
+            else "import_digivice_link_battle_table.py"
+        )
+
+    def get_original_csv(self):
+        return (
+            "d3_link_battle_table_original.csv"
+            if self.current_bin_type_key == "D-3"
+            else "digivice_link_battle_table_original.csv"
+        )
+
+    def get_sprite_map_csv(self):
+        return (
+            "d3_sprite_map.csv"
+            if self.current_bin_type_key == "D-3"
+            else "digivice_sprite_map.csv"
+        )
+
+    def get_default_export_csv(self):
+        return os.path.join(
+            os.path.expanduser("~"),
+            "Desktop",
+            (
+                "d3_link_battle_table.csv"
+                if self.current_bin_type_key == "D-3"
+                else "digivice_link_battle_table.csv"
+            )
+        )
+    
     def build_name_map_from_bin(self):
         """
         Builds mapping: display_name -> string_index
@@ -1075,7 +1115,14 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         tmp_dir = tempfile.mkdtemp(prefix="names_map_")
         tmp_csv = os.path.join(tmp_dir, "names_tmp.csv")
 
-        script = os.path.join(SCRIPT_DIR, "export_d3_names.py")
+        script = os.path.join(
+            SCRIPT_DIR,
+            (
+                "export_d3_names.py"
+                if self.current_bin_type_key == "D-3"
+                else "export_digivice_names.py"
+            )
+        )
         replace_map = os.path.join(SCRIPT_DIR, "replace_map.csv")
 
         if not os.path.isfile(script):
@@ -1118,17 +1165,22 @@ class LinkBattleTableTab(QtWidgets.QWidget):
             self.current_bin_type_key = None
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(index)
+        if self.current_bin_type_key:
+            self.export_csv_edit.setText(
+                self.get_default_export_csv()
+            )
+        self.load_mappings()
 
     def require_all(self):
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
             return False
 
-        if self.current_bin_type_key != "D-3":
+        if self.current_bin_type_key not in ("D-3", "Digivice"):
             QtWidgets.QMessageBox.warning(
                 self,
-                "D-3 only",
-                "Link Battle Table editing is currently enabled only for D-3.",
+                "Unsupported type",
+                "Link Battle Table editing is only supported for D-3 and Digivice."
             )
             return False
 
@@ -1163,7 +1215,10 @@ class LinkBattleTableTab(QtWidgets.QWidget):
             return os.path.join(SCRIPT_DIR, name)
 
         self.name_map = {}
-        self.sprite_map = self.load_simple_map(csv_path("d3_sprite_map.csv"))
+        if self.current_bin_type_key:
+            self.sprite_map = self.load_simple_map(
+                csv_path(self.get_sprite_map_csv())
+            )
 
     def load_name_map(self, path):
         m = {}
@@ -1229,7 +1284,7 @@ class LinkBattleTableTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        script = "export_d3_link_battle_table.py"
+        script = self.get_export_script()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -1297,7 +1352,7 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         tmp_dir = tempfile.mkdtemp(prefix="d3_link_battle_table_gui_")
         tmp_csv = os.path.join(tmp_dir, "d3_link_battle_table_tmp.csv")
 
-        script = "export_d3_link_battle_table.py"
+        script = self.get_export_script()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -1344,21 +1399,39 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
 
-        headers = [
-            "digimon_id",
-            "string_index",
-            "stage",
-            "sprite_index",
-            "power",
-        ]
+        if self.current_bin_type_key == "D-3":
 
-        pretty = [
-            "digimon_id",
-            "Name",
-            "stage",
-            "sprite_index",
-            "power",
-        ]
+            headers = [
+                "digimon_id",
+                "string_index",
+                "stage",
+                "sprite_index",
+                "power",
+            ]
+
+            pretty = [
+                "digimon_id",
+                "Name",
+                "stage",
+                "sprite_index",
+                "power",
+            ]
+
+        else:
+
+            headers = [
+                "digimon_id",
+                "string_index",
+                "sprite_index",
+                "power",
+            ]
+
+            pretty = [
+                "digimon_id",
+                "Name",
+                "sprite_index",
+                "power",
+            ]
 
         self.table.clear()
         self.table.setRowCount(len(rows))
@@ -1378,23 +1451,48 @@ class LinkBattleTableTab(QtWidgets.QWidget):
                 self.make_combo(self.name_map, row.get("string_index", "")),
             )
 
-            self.table.setCellWidget(
-                r_idx,
-                2,
-                self.make_spin(row.get("stage", 0)),
-            )
+            if self.current_bin_type_key == "D-3":
 
-            self.table.setCellWidget(
-                r_idx,
-                3,
-                self.make_combo(self.sprite_map, row.get("sprite_index", "")),
-            )
+                self.table.setCellWidget(
+                    r_idx,
+                    2,
+                    self.make_spin(row.get("stage", 0)),
+                )
 
-            self.table.setCellWidget(
-                r_idx,
-                4,
-                self.make_spin(row.get("power", 0)),
-            )
+                self.table.setCellWidget(
+                    r_idx,
+                    3,
+                    self.make_combo(
+                        self.sprite_map,
+                        row.get("sprite_index", "")
+                    ),
+                )
+
+                self.table.setCellWidget(
+                    r_idx,
+                    4,
+                    self.make_spin(row.get("power", 0)),
+                )
+
+            else:
+                self.hidden_rows[r_idx] = {
+                    "unknown": str(row.get("unknown", "0"))
+                }
+
+                self.table.setCellWidget(
+                    r_idx,
+                    2,
+                    self.make_combo(
+                        self.sprite_map,
+                        row.get("sprite_index", "")
+                    ),
+                )
+
+                self.table.setCellWidget(
+                    r_idx,
+                    3,
+                    self.make_spin(row.get("power", 0)),
+                )
 
         self.table.resizeColumnsToContents()
 
@@ -1414,22 +1512,48 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         rows_out = []
 
         for r in range(self.table.rowCount()):
-            row = {
-                "digimon_id": self.table.cellWidget(r, 0).value(),
-                "string_index": self.table.cellWidget(r, 1).currentData(),
-                "stage": self.table.cellWidget(r, 2).value(),
-                "sprite_index": self.table.cellWidget(r, 3).currentData(),
-                "power": self.table.cellWidget(r, 4).value(),
-            }
+            if self.current_bin_type_key == "D-3":
+
+                row = {
+                    "digimon_id": self.table.cellWidget(r,0).value(),
+                    "string_index": self.table.cellWidget(r,1).currentData(),
+                    "stage": self.table.cellWidget(r,2).value(),
+                    "sprite_index": self.table.cellWidget(r,3).currentData(),
+                    "power": self.table.cellWidget(r,4).value(),
+                }
+
+            else:
+
+                hidden = self.hidden_rows.get(r, {})
+
+                row = {
+                    "digimon_id": self.table.cellWidget(r,0).value(),
+                    "string_index": self.table.cellWidget(r,1).currentData(),
+                    "sprite_index": self.table.cellWidget(r,2).currentData(),
+                    "unknown": hidden.get("unknown", "0"),
+                    "power": self.table.cellWidget(r,3).value(),
+                }
             rows_out.append(row)
 
-        fieldnames = [
-            "digimon_id",
-            "string_index",
-            "stage",
-            "sprite_index",
-            "power",
-        ]
+        if self.current_bin_type_key == "D-3":
+
+            fieldnames = [
+                "digimon_id",
+                "string_index",
+                "stage",
+                "sprite_index",
+                "power",
+            ]
+
+        else:
+
+            fieldnames = [
+                "digimon_id",
+                "string_index",
+                "sprite_index",
+                "unknown",
+                "power",
+            ]
 
         tmp_dir = tempfile.mkdtemp(prefix="d3_link_battle_table_save_")
         tmp_csv = os.path.join(tmp_dir, "d3_link_battle_table_edit.csv")
@@ -1450,7 +1574,10 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        original_csv = os.path.join(SCRIPT_DIR, "d3_link_battle_table_original.csv")
+        original_csv = os.path.join(
+            SCRIPT_DIR,
+            self.get_original_csv()
+        )
 
         if not os.path.isfile(original_csv):
             QtWidgets.QMessageBox.critical(
@@ -1478,7 +1605,7 @@ class LinkBattleTableTab(QtWidgets.QWidget):
         self.run_import_script(original_csv, reload_after=True)
 
     def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
-        script = "import_d3_link_battle_table.py"
+        script = self.get_import_script()
         script_path = os.path.join(SCRIPT_DIR, script)
 
         if not os.path.isfile(script_path):
