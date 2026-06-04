@@ -1311,7 +1311,7 @@ class LinkBattleTableTab(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Link Battle Table Exported",
-                    "Link battle table was exported to d3_link_battle_table.csv on your Desktop.",
+                    f"Link battle table was exported to {out_csv} on your Desktop.",
                 )
                 try:
                     self.populate_table_from_csv(out_csv)
@@ -1709,7 +1709,11 @@ class PartnerTableTab(QtWidgets.QWidget):
         io_box = QtWidgets.QGroupBox("Partner Table CSV & In-App Editing")
         io_layout = QtWidgets.QGridLayout(io_box)
 
-        default_csv = os.path.join(os.path.expanduser("~"), "Desktop", "d3_partner_table.csv")
+        default_csv = os.path.join(
+            os.path.expanduser("~"),
+            "Desktop",
+            "partner_table.csv"
+        )
         self.export_csv_edit = QtWidgets.QLineEdit(default_csv)
 
         self.export_btn = QtWidgets.QPushButton("Export Partner Table to CSV")
@@ -1758,6 +1762,79 @@ class PartnerTableTab(QtWidgets.QWidget):
 
     def _short_status(self, msg: str) -> str:
         return msg if len(msg) <= 100 else msg[:97] + "..."
+    
+    def build_digivice_name_map_from_bin(self):
+        if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
+            return {}
+
+        tmp_dir = tempfile.mkdtemp(prefix="digivice_names_")
+        tmp_csv = os.path.join(tmp_dir, "digivice_names_tmp.csv")
+
+        script = os.path.join(
+            SCRIPT_DIR,
+            "export_digivice_names.py"
+        )
+
+        replace_map = os.path.join(
+            SCRIPT_DIR,
+            "replace_map.csv"
+        )
+
+        try:
+            old_argv = sys.argv
+
+            sys.argv = [
+                "export_digivice_names.py",
+                self.current_bin_path,
+                replace_map,
+                tmp_csv,
+            ]
+
+            runpy.run_path(script, run_name="__main__")
+
+            mapping = {}
+
+            with open(tmp_csv, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+
+                    si = str(row.get("string_index", "")).strip()
+                    name = str(row.get("name", "")).strip()
+
+                    if si and name:
+                        mapping[f"{name} ({si})"] = si
+
+            return mapping
+
+        finally:
+            sys.argv = old_argv
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def is_digivice(self):
+        return self.current_bin_type_key == "Digivice"
+
+    def export_script_name(self):
+        return (
+            "export_digivice_partner_table.py"
+            if self.is_digivice()
+            else "export_d3_partner_table.py"
+        )
+
+    def import_script_name(self):
+        return (
+            "import_digivice_partner_table.py"
+            if self.is_digivice()
+            else "import_d3_partner_table.py"
+        )
+
+    def partner_original_csv(self):
+        return os.path.join(
+            SCRIPT_DIR,
+            (
+                "digivice_partner_table_original.csv"
+                if self.is_digivice()
+                else "d3_partner_table_original.csv"
+            ),
+        )
     
     def get_partner_ui_order(self, row_count):
         # User-facing row numbers are 1-based.
@@ -1841,18 +1918,26 @@ class PartnerTableTab(QtWidgets.QWidget):
             self.current_bin_type_key = None
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(index)
+        if self.current_bin_type_key == "Digivice":
+            self.export_csv_edit.setText(
+                os.path.join(
+                    os.path.expanduser("~"),
+                    "Desktop",
+                    "digivice_partner_table.csv"
+                )
+            )
+        elif self.current_bin_type_key == "D-3":
+            self.export_csv_edit.setText(
+                os.path.join(
+                    os.path.expanduser("~"),
+                    "Desktop",
+                    "d3_partner_table.csv"
+                )
+            )
 
     def require_all(self) -> bool:
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
-            return False
-
-        if self.current_bin_type_key != "D-3":
-            QtWidgets.QMessageBox.warning(
-                self,
-                "D-3 only",
-                "Partner Table editing is currently enabled only for D-3.",
-            )
             return False
 
         if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
@@ -1876,25 +1961,71 @@ class PartnerTableTab(QtWidgets.QWidget):
             return
 
         self.current_bin_path = path
-        self.name_map = self.build_name_map_from_bin()
         self.bin_path_edit.setText(path)
 
-        # Auto-load after selecting BIN
+        self.load_mappings()
+
+        if self.is_digivice():
+            self.name_map = self.build_digivice_name_map_from_bin()
+        else:
+            self.name_map = self.build_name_map_from_bin()
+
         self.on_load_table_clicked()
 
     # ---------------- mappings ----------------
 
     def load_mappings(self):
+
         def csv_path(name):
             return os.path.join(SCRIPT_DIR, name)
 
-        self.name_map = {}
-        self.sprite_map = self.load_simple_map(csv_path("d3_sprite_map.csv"))
-        self.jogress_map = self.load_simple_map(csv_path("d3_jogress_win_partner_id_map.csv"))
-        self.evo_map = self.load_simple_map(csv_path("d3_evo_animation_map.csv"))
-        self.bgm_map = self.load_simple_map(csv_path("d3_background_music_during_battle_id_map.csv"))
-        self.voice_map = self.load_simple_map(csv_path("d3_attack_voice_sound_id_map.csv"))
-        self.shot_sound_map = self.load_simple_map(csv_path("d3_attack_shot_sound_id_map.csv"))
+        if self.is_digivice():
+
+            self.sprite_map = self.load_simple_map(
+                csv_path("digivice_sprite_map.csv")
+            )
+
+            self.jogress_map = self.load_simple_map(
+                csv_path("digivice_jogress_win_partner_id_map.csv")
+            )
+
+            self.evo_map = self.load_simple_map(
+                csv_path("digivice_evo_animation_map.csv")
+            )
+
+            self.voice_map = self.load_simple_map(
+                csv_path("digivice_attack_voice_sound_id_map.csv")
+            )
+
+            self.shot_sound_map = self.load_simple_map(
+                csv_path("digivice_attack_shot_sound_id_map.csv")
+            )
+
+        else:
+
+            self.sprite_map = self.load_simple_map(
+                csv_path("d3_sprite_map.csv")
+            )
+
+            self.jogress_map = self.load_simple_map(
+                csv_path("d3_jogress_win_partner_id_map.csv")
+            )
+
+            self.evo_map = self.load_simple_map(
+                csv_path("d3_evo_animation_map.csv")
+            )
+
+            self.bgm_map = self.load_simple_map(
+                csv_path("d3_background_music_during_battle_id_map.csv")
+            )
+
+            self.voice_map = self.load_simple_map(
+                csv_path("d3_attack_voice_sound_id_map.csv")
+            )
+
+            self.shot_sound_map = self.load_simple_map(
+                csv_path("d3_attack_shot_sound_id_map.csv")
+            )
 
     def load_name_map(self, path):
         """
@@ -2002,7 +2133,7 @@ class PartnerTableTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        script = "export_d3_partner_table.py"
+        script = self.export_script_name()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -2032,7 +2163,7 @@ class PartnerTableTab(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Partner Table Exported",
-                    "Partner table was exported to d3_partner_table.csv on your Desktop.",
+                    f"Partner table was exported to {out_csv} on your Desktop.",
                 )
                 try:
                     self.populate_table_from_csv(out_csv)
@@ -2057,7 +2188,7 @@ class PartnerTableTab(QtWidgets.QWidget):
 
         in_csv, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "Select d3_partner_table.csv",
+            "Select partner_table.csv",
             "",
             "CSV files (*.csv);;All files (*)",
         )
@@ -2070,10 +2201,10 @@ class PartnerTableTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        tmp_dir = tempfile.mkdtemp(prefix="d3_partner_table_gui_")
-        tmp_csv = os.path.join(tmp_dir, "d3_partner_table_tmp.csv")
+        tmp_dir = tempfile.mkdtemp(prefix="partner_table_gui_")
+        tmp_csv = os.path.join(tmp_dir,"partner_table_tmp.csv")
 
-        script = "export_d3_partner_table.py"
+        script = self.export_script_name()
         script_path = os.path.join(SCRIPT_DIR, script)
         if not os.path.isfile(script_path):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
@@ -2101,7 +2232,11 @@ class PartnerTableTab(QtWidgets.QWidget):
 
             if ok:
                 try:
-                    self.name_map = self.build_name_map_from_bin()
+                    self.load_mappings()
+                    if self.is_digivice():
+                        self.name_map = self.build_digivice_name_map_from_bin()
+                    else:
+                        self.name_map = self.build_name_map_from_bin()
                     self.populate_table_from_csv(tmp_csv)
                     self.save_edits_btn.setEnabled(True)
                     self.status_label.setText("Partner table loaded.")
@@ -2122,8 +2257,13 @@ class PartnerTableTab(QtWidgets.QWidget):
     # ---------------- table population ----------------
 
     def populate_table_from_csv(self, csv_path):
+
         with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
+
+        if self.is_digivice():
+            self.populate_digivice_table(rows)
+            return
 
         display_order = self.get_partner_ui_order(len(rows))
         display_rows = [rows[i] for i in display_order]
@@ -2257,9 +2397,287 @@ class PartnerTableTab(QtWidgets.QWidget):
             1, QtWidgets.QHeaderView.ResizeMode.Fixed
         )
 
+    def populate_digivice_table(self, rows):
+        headers = [
+            "digimon_id",
+            "string_index",
+            "stage",
+            "jogress_win_partner_id",
+            "sprite_index",
+            "win_requirement_for_next_evo",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+            "attack_led_color_id",
+            "unknown_column",
+        ]
+
+        pretty = [
+            "digimon_id",
+            "Name",
+            "stage",
+            "slot_type",
+            "sprite_index",
+            "wins_to_evo",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+            "attack_led_color_id",
+            "unknown_column",
+        ]
+
+        self.table.clear()
+        self.table.setRowCount(len(rows))
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(pretty)
+
+        self.partner_ui_to_csv_index = {}
+
+        for r_idx, row in enumerate(rows):
+            self.partner_ui_to_csv_index[r_idx] = r_idx
+
+            self.table.setVerticalHeaderItem(
+                r_idx,
+                QtWidgets.QTableWidgetItem(str(r_idx + 1))
+            )
+
+            self.table.setCellWidget(r_idx, 0, self.make_spin(row.get("digimon_id", 0)))
+
+            self.table.setCellWidget(
+                r_idx,
+                1,
+                self.make_combo(self.name_map, row.get("string_index", "")),
+            )
+
+            self.table.setCellWidget(r_idx, 2, self.make_spin(row.get("stage", 0)))
+
+            self.table.setCellWidget(
+                r_idx,
+                3,
+                self.make_combo(self.jogress_map, row.get("jogress_win_partner_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                4,
+                self.make_combo(self.sprite_map, row.get("sprite_index", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                5,
+                self.make_spin(row.get("win_requirement_for_next_evo", 0)),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                6,
+                self.make_combo(self.evo_map, row.get("evo_animation1_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                7,
+                self.make_combo(self.evo_map, row.get("evo_animation2_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                8,
+                self.make_combo(self.voice_map, row.get("attack_voice_sound_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                9,
+                self.make_spin(row.get("attack_shot_sprite_index", 0)),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                10,
+                self.make_combo(self.shot_sound_map, row.get("attack_shot_sound_id", "")),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                11,
+                self.make_spin(row.get("attack_led_color_id", 0)),
+            )
+
+            self.table.setCellWidget(
+                r_idx,
+                12,
+                self.make_spin(row.get("unknown_column", 0)),
+            )
+
+        self.table.resizeColumnsToContents()
+
+        self.table.setColumnWidth(1, 160)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QtWidgets.QHeaderView.ResizeMode.Fixed
+        )
+
     # ---------------- save/import ----------------
+    def save_digivice_partner_table(self):
+        if self.table.rowCount() == 0:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No data",
+                "There is no Digivice partner table loaded."
+            )
+            return
+
+        rows_out = []
+
+        rows_by_csv_index = {}
+
+        for r in range(self.table.rowCount()):
+
+            row = {}
+
+            row["offset"] = ""
+
+            row["digimon_id"] = self.table.cellWidget(r, 0).value()
+
+            row["string_index"] = self.table.cellWidget(
+                r,
+                1
+            ).currentData()
+
+            row["stage"] = self.table.cellWidget(r, 2).value()
+
+            row["jogress_win_partner_id"] = self.table.cellWidget(
+                r,
+                3
+            ).currentData()
+
+            row["sprite_index"] = self.table.cellWidget(
+                r,
+                4
+            ).currentData()
+
+            row["win_requirement_for_next_evo"] = self.table.cellWidget(
+                r,
+                5
+            ).value()
+
+            row["evo_animation1_id"] = self.table.cellWidget(
+                r,
+                6
+            ).currentData()
+
+            row["evo_animation2_id"] = self.table.cellWidget(
+                r,
+                7
+            ).currentData()
+
+            row["attack_voice_sound_id"] = self.table.cellWidget(
+                r,
+                8
+            ).currentData()
+
+            row["attack_shot_sprite_index"] = self.table.cellWidget(
+                r,
+                9
+            ).value()
+
+            row["attack_shot_sound_id"] = self.table.cellWidget(
+                r,
+                10
+            ).currentData()
+
+            row["attack_led_color_id"] = self.table.cellWidget(
+                r,
+                11
+            ).value()
+
+            row["unknown_column"] = self.table.cellWidget(
+                r,
+                12
+            ).value()
+
+            csv_idx = self.partner_ui_to_csv_index.get(r, r)
+
+            rows_by_csv_index[csv_idx] = row
+
+        rows_out = [
+            rows_by_csv_index[i]
+            for i in sorted(rows_by_csv_index.keys())
+        ]
+
+        fieldnames = [
+            "offset",
+            "stage",
+            "digimon_id",
+            "jogress_win_partner_id",
+            "win_requirement_for_next_evo",
+            "sprite_index",
+            "string_index",
+            "evo_animation1_id",
+            "evo_animation2_id",
+            "attack_voice_sound_id",
+            "attack_shot_sprite_index",
+            "attack_shot_sound_id",
+            "attack_led_color_id",
+            "unknown_column",
+        ]
+
+        tmp_dir = tempfile.mkdtemp(
+            prefix="digivice_partner_table_save_"
+        )
+
+        tmp_csv = os.path.join(
+            tmp_dir,
+            "digivice_partner_table_edit.csv"
+        )
+
+        try:
+
+            with open(
+                tmp_csv,
+                "w",
+                encoding="utf-8-sig",
+                newline=""
+            ) as f:
+
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=fieldnames
+                )
+
+                writer.writeheader()
+                writer.writerows(rows_out)
+
+        except Exception as e:
+
+            shutil.rmtree(
+                tmp_dir,
+                ignore_errors=True
+            )
+
+            QtWidgets.QMessageBox.critical(
+                self,
+                "CSV error",
+                f"Failed to write temp CSV:\n{e}"
+            )
+
+            return
+
+        self.run_import_script(
+            tmp_csv,
+            reload_after=True,
+            cleanup_dir=tmp_dir
+        )
 
     def on_save_edits_clicked(self):
+        if self.is_digivice():
+            self.save_digivice_partner_table()
+            return
         if not self.require_all():
             return
 
@@ -2343,7 +2761,7 @@ class PartnerTableTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        original_csv = os.path.join(SCRIPT_DIR, "d3_partner_table_original.csv")
+        original_csv = self.partner_original_csv()
 
         if not os.path.isfile(original_csv):
             QtWidgets.QMessageBox.critical(
@@ -2372,7 +2790,7 @@ class PartnerTableTab(QtWidgets.QWidget):
         self.run_import_script(original_csv, reload_after=True)
 
     def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
-        script = "import_d3_partner_table.py"
+        script = self.import_script_name()
         script_path = os.path.join(SCRIPT_DIR, script)
 
         if not os.path.isfile(script_path):
@@ -2622,14 +3040,6 @@ class FriendTableTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
             return False
 
-        if self.current_bin_type_key != "D-3":
-            QtWidgets.QMessageBox.warning(
-                self,
-                "D-3 only",
-                "Friend Table editing is currently enabled only for D-3.",
-            )
-            return False
-
         if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
             QtWidgets.QMessageBox.warning(self, "BIN required", "Please select a valid .bin file.")
             return False
@@ -2691,7 +3101,7 @@ class FriendTableTab(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Friend Table Exported",
-                    "Friend table was exported to d3_friend_table.csv on your Desktop.",
+                    f"Friend table was exported to {out_csv} on your Desktop.",
                 )
                 self.populate_table_from_csv(out_csv)
                 self.save_edits_btn.setEnabled(True)
