@@ -2936,13 +2936,75 @@ class FriendTableTab(QtWidgets.QWidget):
     def _short_status(self, msg):
         return msg if len(msg) <= 100 else msg[:97] + "..."
 
+    def is_digivice(self):
+        return self.current_bin_type_key == "Digivice"
+
+    def get_export_script(self):
+        return (
+            "export_digivice_friend_table.py"
+            if self.is_digivice()
+            else "export_d3_friend_table.py"
+        )
+
+    def get_import_script(self):
+        return (
+            "import_digivice_friend_table.py"
+            if self.is_digivice()
+            else "import_d3_friend_table.py"
+        )
+
+    def get_original_csv(self):
+        return (
+            "digivice_friend_table_original.csv"
+            if self.is_digivice()
+            else "d3_friend_table_original.csv"
+        )
+
+    def get_sprite_map_csv(self):
+        return (
+            "digivice_sprite_map.csv"
+            if self.is_digivice()
+            else "d3_sprite_map.csv"
+        )
+
+    def get_shot_sound_map_csv(self):
+        return (
+            "digivice_attack_shot_sound_id_map.csv"
+            if self.is_digivice()
+            else "d3_attack_shot_sound_id_map.csv"
+        )
+
+    def get_names_export_script(self):
+        return (
+            "export_digivice_names.py"
+            if self.is_digivice()
+            else "export_d3_names.py"
+        )
+
+    def get_default_export_csv(self):
+        return os.path.join(
+            os.path.expanduser("~"),
+            "Desktop",
+            (
+                "digivice_friend_table.csv"
+                if self.is_digivice()
+                else "d3_friend_table.csv"
+            )
+        )
+
     def load_mappings(self):
         def csv_path(name):
             return os.path.join(SCRIPT_DIR, name)
 
         self.name_map = {}
-        self.sprite_map = self.load_simple_map(csv_path("d3_sprite_map.csv"))
-        self.shot_sound_map = self.load_simple_map(csv_path("d3_attack_shot_sound_id_map.csv"))
+
+        if not self.current_bin_type_key:
+            self.sprite_map = {}
+            self.shot_sound_map = {}
+            return
+
+        self.sprite_map = self.load_simple_map(csv_path(self.get_sprite_map_csv()))
+        self.shot_sound_map = self.load_simple_map(csv_path(self.get_shot_sound_map_csv()))
 
     def load_simple_map(self, path):
         m = {}
@@ -2964,7 +3026,8 @@ class FriendTableTab(QtWidgets.QWidget):
         tmp_dir = tempfile.mkdtemp(prefix="friend_names_map_")
         tmp_csv = os.path.join(tmp_dir, "names_tmp.csv")
 
-        script = os.path.join(SCRIPT_DIR, "export_d3_names.py")
+        script_name = self.get_names_export_script()
+        script = os.path.join(SCRIPT_DIR, script_name)
         replace_map = os.path.join(SCRIPT_DIR, "replace_map.csv")
 
         if not os.path.isfile(script):
@@ -2974,7 +3037,7 @@ class FriendTableTab(QtWidgets.QWidget):
         old_argv = sys.argv
         try:
             sys.argv = [
-                "export_d3_names.py",
+                script_name,
                 self.current_bin_path,
                 replace_map,
                 tmp_csv,
@@ -3035,6 +3098,11 @@ class FriendTableTab(QtWidgets.QWidget):
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(index)
 
+        if self.current_bin_type_key:
+            self.export_csv_edit.setText(self.get_default_export_csv())
+
+        self.load_mappings()
+
     def require_all(self):
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Type required", "Please select the BIN type first.")
@@ -3075,7 +3143,7 @@ class FriendTableTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "CSV path required", "Please specify an export CSV path.")
             return
 
-        script = "export_d3_friend_table.py"
+        script = self.get_export_script()
         if not os.path.isfile(os.path.join(SCRIPT_DIR, script)):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
             return
@@ -3135,7 +3203,7 @@ class FriendTableTab(QtWidgets.QWidget):
         tmp_dir = tempfile.mkdtemp(prefix="d3_friend_table_gui_")
         tmp_csv = os.path.join(tmp_dir, "d3_friend_table_tmp.csv")
 
-        script = "export_d3_friend_table.py"
+        script = self.get_export_script()
         if not os.path.isfile(os.path.join(SCRIPT_DIR, script)):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -3181,13 +3249,13 @@ class FriendTableTab(QtWidgets.QWidget):
         if not self.require_all():
             return
 
-        original_csv = os.path.join(SCRIPT_DIR, "d3_friend_table_original.csv")
+        original_csv = os.path.join(SCRIPT_DIR, self.get_original_csv())
 
         if not os.path.isfile(original_csv):
             QtWidgets.QMessageBox.critical(
                 self,
                 "Missing file",
-                "d3_friend_table_original.csv not found next to this GUI."
+                f"{self.get_original_csv()} not found next to this GUI."
             )
             return
 
@@ -3196,7 +3264,7 @@ class FriendTableTab(QtWidgets.QWidget):
             "Reset Friend Table to Original?",
             (
                 "This will overwrite ALL friend table data in the BIN\n"
-                "with the baseline values from d3_friend_table_original.csv.\n\n"
+                "with the baseline values from your bin file.\n\n"
                 "You will not lose game progress. But friend table modding changes will be lost.\n\n"
                 "Continue?"
             ),
@@ -3337,7 +3405,7 @@ class FriendTableTab(QtWidgets.QWidget):
         self.run_import_script(tmp_csv, reload_after=True, cleanup_dir=tmp_dir)
 
     def run_import_script(self, csv_path, reload_after=False, cleanup_dir=None):
-        script = "import_d3_friend_table.py"
+        script = self.get_import_script()
 
         if not os.path.isfile(os.path.join(SCRIPT_DIR, script)):
             QtWidgets.QMessageBox.critical(self, "Missing script", f"{script} not found next to this GUI.")
