@@ -15,12 +15,13 @@ import update_palette as up
 from PIL import Image
 import imagequant
 
-# --- import your helper scripts as modules ---
-if getattr(sys, 'frozen', False):
-    # Running inside a bundled app (PyInstaller)
-    SCRIPT_DIR = sys._MEIPASS
+# --- PyInstaller/resource paths ---
+if getattr(sys, "frozen", False):
+    APP_DIR = sys._MEIPASS
+    SCRIPT_DIR = os.path.join(APP_DIR, "scripts")
 else:
     SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+    APP_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
@@ -283,22 +284,28 @@ class InternalScriptWorker(QtCore.QObject):
     @QtCore.pyqtSlot()
     def run(self):
         old_argv = sys.argv
-        try:
-            # Build argv as if the script were run from command line
-            sys.argv = [self.script_name] + self.script_args
+        old_cwd = os.getcwd()
 
+        try:
             script_path = os.path.join(SCRIPT_DIR, self.script_name)
+
+            sys.argv = [script_path] + self.script_args
 
             self.progress.emit(0.0, f"Running internal script: {self.script_name}")
 
-            # Run script in THIS interpreter, as __main__
+            # Important: make relative CSV paths like d3_names_original.csv work
+            os.chdir(SCRIPT_DIR)
+
             runpy.run_path(script_path, run_name="__main__")
 
             self.progress.emit(1.0, f"{self.desc} finished.")
             self.finished.emit(True, f"{self.desc} completed successfully.")
+
         except Exception as e:
             self.finished.emit(False, f"{self.desc} failed: {e}")
+
         finally:
+            os.chdir(old_cwd)
             sys.argv = old_argv
 
 
@@ -316,7 +323,7 @@ class ProgressDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         # --- NEW: kindness.gif animation ---
-        gif_path = os.path.join(SCRIPT_DIR, "kindness.gif")
+        gif_path = os.path.join(APP_DIR, "kindness.gif")
         self.gif_label = QtWidgets.QLabel()
         self.gif_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         if os.path.isfile(gif_path):
@@ -371,7 +378,7 @@ class BusyDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         # --- NEW: kindness.gif animation ---
-        gif_path = os.path.join(SCRIPT_DIR, "kindness.gif")
+        gif_path = os.path.join(APP_DIR, "kindness.gif")
         self.gif_label = QtWidgets.QLabel()
         self.gif_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         if os.path.isfile(gif_path):
