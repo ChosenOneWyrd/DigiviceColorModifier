@@ -216,32 +216,17 @@ export_device_sounds.py (Windows only) - Exports device sounds like boss alerts,
 	Mac:
 
    pyinstaller \
-     --name "DigiviceColorModifier" \
-     --onefile \
-     --windowed \
-     --hidden-import wave \
-     --icon "icons/digivice.icns" \
-     --add-data "kindness.gif:." \
-     --add-data "replace_map.csv:." \
-     --add-data "export_sprites.py:." \
-     --add-data "update_palette.py:." \
-     --add-data "replace_sprites.py:." \
-     --add-data "export_d3_data.py:." \
-     --add-data "export_digivice_data.py:." \
-     --add-data "import_d3_data.py:." \
-     --add-data "import_digivice_data.py:." \
-     --add-data "import_d3_npc_names.py:." \
-     --add-data "export_d3_npc_names.py:." \
-     --add-data "import_digivice_npc_names.py:." \
-     --add-data "export_digivice_npc_names.py:." \
-     --add-data "a1800.dll:." \
-     --add-data "d3_sound_map.csv:." \
-     --add-data "digivice_sound_map.csv:." \
-     --add-data "export_sounds.py:." \
-     --add-data "import_sounds.py:." \
-     --add-data "export_device_sounds.py:." \
-     --add-data "import_device_sounds.py:." \
-     digimon_tool_gui.py  
+      --name "DigiviceColorModifier" \
+      --onefile \
+      --windowed \
+      --hidden-import wave \
+      --hidden-import cffi \
+      --hidden-import _cffi_backend \
+      --collect-all imagequant \
+      --icon "icons/digivice.icns" \
+      --add-data "kindness.gif:." \
+      --add-data "scripts:scripts" \
+   scripts/digimon_tool_gui.py  
 
 
   <br/>The app will be generated and stored in the dist folder.
