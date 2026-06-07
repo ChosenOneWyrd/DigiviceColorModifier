@@ -5,6 +5,7 @@ import struct
 import sys
 from pathlib import Path
 
+MAX_POWER = 255
 TABLE_START = 0x00097F2C
 RECORD_SIZE = 10
 EXPECTED_RECORDS = 112
@@ -18,24 +19,19 @@ FIELDS = [
 ]
 
 
-def fail(msg):
-    print(f"ERROR: {msg}")
-    sys.exit(1)
-
-
 def parse_u16(value, field_name, row_num):
     try:
         value = int(str(value).strip(), 0)
     except Exception:
-        fail(
-            f"Row {row_num}: "
-            f"{field_name}='{value}' is not a valid integer."
+        raise ValueError(
+            f"Row {row_num}, column {field_name}: "
+            f"'{value}' is not a valid integer"
         )
 
     if not (0 <= value <= 65535):
-        fail(
-            f"Row {row_num}: "
-            f"{field_name}={value} outside uint16 range (0-65535)."
+        raise ValueError(
+            f"Row {row_num}, column {field_name}: "
+            f"value out of uint16 range: {value}"
         )
 
     return value
@@ -55,54 +51,45 @@ def main():
     data = bytearray(Path(bin_in).read_bytes())
 
     with open(csv_in, newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    missing = [h for h in FIELDS if h not in reader.fieldnames]
+    if missing:
+        raise RuntimeError(f"CSV missing columns: {missing}")
 
     if len(rows) != EXPECTED_RECORDS:
-        fail(
-            f"Expected {EXPECTED_RECORDS} records "
-            f"but CSV contains {len(rows)}."
+        raise RuntimeError(
+            f"Expected {EXPECTED_RECORDS} records but CSV contains {len(rows)}."
         )
 
-    for row_num, row in enumerate(rows, start=1):
+    for i, row in enumerate(rows):
+        offset = TABLE_START + i * RECORD_SIZE
 
         values = []
 
-        for field in FIELDS:
+        for h in FIELDS:
+            value = parse_u16(row[h], h, i + 1)
 
-            if field not in row:
-                fail(
-                    f"CSV missing required column '{field}'."
+            # Specific constraint for power
+            if h == "power" and value > MAX_POWER:
+                raise ValueError(
+                    f"Row {i + 1}, column power: {value} exceeds MAX_POWER ({MAX_POWER})"
                 )
 
-            values.append(
-                parse_u16(
-                    row[field],
-                    field,
-                    row_num,
-                )
-            )
+            values.append(value)
 
-        offset = TABLE_START + (row_num - 1) * RECORD_SIZE
-
-        struct.pack_into(
-            "<5H",
-            data,
-            offset,
-            *values,
-        )
+        struct.pack_into("<5H", data, offset, *values)
 
     Path(bin_out).write_bytes(data)
 
-    print(
-        f"Imported {EXPECTED_RECORDS} records "
-        f"into {bin_out}"
-    )
-
+    print(f"Imported {len(rows)} records")
     print(
         f"Table range: "
         f"0x{TABLE_START:X} - "
         f"0x{TABLE_START + EXPECTED_RECORDS * RECORD_SIZE:X}"
     )
+    print(f"Wrote: {bin_out}")
 
 
 if __name__ == "__main__":

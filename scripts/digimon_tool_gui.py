@@ -30,10 +30,12 @@ BIN_TYPES = {
     "D-3": {
         "max_sprite_index": 2115,
         "label": "D-3 25th Color Evolution",
+        "sprite_package_offset": "0x1EF000",
     },
     "Digivice": {
         "max_sprite_index": 1578,
         "label": "Digivice 25th Color Evolution",
+        "sprite_package_offset": "0x196000",
     },
 }
 
@@ -936,22 +938,38 @@ class SpritesTab(QtWidgets.QWidget):
         if not (self.require_bin_selected() and self.require_input_dir()):
             return
 
-        script_path = os.path.join(SCRIPT_DIR, "replace_sprites.py")
+        script_name = "replace_sprites.py"
+        script_path = os.path.join(SCRIPT_DIR, script_name)
+
         if not os.path.isfile(script_path):
-            QtWidgets.QMessageBox.critical(self, "Missing script", "replace_sprites.py not found next to this GUI.")
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Missing script",
+                f"{script_name} not found in scripts folder."
+            )
             return
+
+        bin_info = BIN_TYPES.get(self.current_bin_type_key, {})
+        package_offset = bin_info.get("sprite_package_offset")
+
+        script_args = [
+            self.current_bin_path,
+            "--input-dir", self.input_sprites_dir,
+            "--out", self.current_bin_path,
+        ]
+
+        if package_offset:
+            script_args += ["--package-offset", package_offset]
 
         desc = "Replace sprites"
         dlg_prog = ProgressDialog(desc, self)
+
         worker = InternalScriptWorker(
-            script_name="replace_sprites.py",
-            script_args=[
-                self.current_bin_path,
-                "--input-dir", self.input_sprites_dir,
-                "--out", self.current_bin_path,
-            ],
+            script_name=script_name,
+            script_args=script_args,
             desc=desc,
         )
+
         thread = QtCore.QThread(self)
         worker.moveToThread(thread)
 
