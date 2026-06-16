@@ -1,4 +1,4 @@
-map_id,region_id,area_id,steps,encounter_type,friend_digimon_id,skip1,skip2,skip3,skip4,skip5,skip6,skip7,skip8,skip9,skip10,friend_digimon_id_2,encounter_type_2,friend_digimon_id_3,enemy_stage,battle_type,shake_mash_follow_win_count,friend_digimon_id_4,min_stage_required,unknown1,unknown2,unknown3,skip11
+map_id,region_id,area_id,steps,encounter_type,friend_digimon_id,skip1,skip2,skip3,skip4,skip5,skip6,skip7,skip8,skip9,skip10,friend_digimon_id_2,encounter_type_2,friend_digimon_id_3,enemy_stage,battle_type,shake_mash_follow_win_count,friend_digimon_id_4,min_stage_req,unknown1,unknown2,unknown3,skip11
 0,0,0,300,4,57345,1,2,3,4,5,6,0,0,0,1,127,0,12,2,2,4,12,1,1,1,219,65535
 0,0,1,400,0,10,127,127,127,127,127,127,127,127,127,127,10,0,10,2,0,10,10,1,2,2,219,65535
 0,0,2,500,5,57345,2,0,0,0,0,2,0,1,1,2,127,0,15,2,1,8,15,1,52,3,4,65535
