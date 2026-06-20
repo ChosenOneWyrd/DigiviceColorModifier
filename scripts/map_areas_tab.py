@@ -480,17 +480,25 @@ class MapAreasTab(QtWidgets.QWidget):
 
                 merged = []
                 for idx, current_row in enumerate(current_rows):
-                    if self.is_protected_row(current_row):
-                        merged.append(dict(current_row))
+                    # if self.is_protected_row(current_row):
+                    #     merged.append(dict(current_row))
+                    # else:
+                    #     if preserve_hidden:
+                    #         row = dict(current_row)
+                    #         for col in headers:
+                    #             if not self.is_hidden_column(col):
+                    #                 row[col] = source_rows[idx].get(col, row.get(col, "0"))
+                    #         merged.append(row)
+                    #     else:
+                    #         merged.append(dict(source_rows[idx]))
+                    if preserve_hidden:
+                        row = dict(current_row)
+                        for col in headers:
+                            if not self.is_hidden_column(col):
+                                row[col] = source_rows[idx].get(col, row.get(col, "0"))
+                        merged.append(row)
                     else:
-                        if preserve_hidden:
-                            row = dict(current_row)
-                            for col in headers:
-                                if not self.is_hidden_column(col):
-                                    row[col] = source_rows[idx].get(col, row.get(col, "0"))
-                            merged.append(row)
-                        else:
-                            merged.append(dict(source_rows[idx]))
+                        merged.append(dict(source_rows[idx]))
                 self.write_csv(merged_csv, headers, merged)
                 self.run_import_script(merged_csv, desc, reload_after=reload_after, cleanup_dir=tmp_dir)
             except Exception as e:
