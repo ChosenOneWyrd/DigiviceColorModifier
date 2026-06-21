@@ -101,6 +101,9 @@ class MapAreasTab(QtWidgets.QWidget):
         self.reset_btn = QtWidgets.QPushButton("Reset to Original ?")
         self.reset_btn.setStyleSheet("background-color:#960202;color:white;font-weight:600;font-size:14pt;")
 
+        self.friend_events_to_battle_btn = QtWidgets.QPushButton("Change Friend Events to Battle?")
+        self.friend_events_to_battle_btn.setStyleSheet("background-color:#960202;color:white;font-weight:600;font-size:14pt;")
+
         self.save_edits_btn = QtWidgets.QPushButton("Save Map Area Edits to BIN")
         self.save_edits_btn.setStyleSheet("background-color:#008000;color:white;font-weight:600;font-size:14pt;")
         self.save_edits_btn.setEnabled(False)
@@ -111,8 +114,9 @@ class MapAreasTab(QtWidgets.QWidget):
 
         io_layout.addWidget(self.load_table_btn, 1, 0)
         io_layout.addWidget(self.reset_btn, 1, 1)
-        io_layout.addWidget(self.save_edits_btn, 1, 2)
-        io_layout.addWidget(self.import_btn, 1, 3)
+        io_layout.addWidget(self.friend_events_to_battle_btn, 1, 2)
+        io_layout.addWidget(self.save_edits_btn, 1, 3)
+        io_layout.addWidget(self.import_btn, 1, 4)
         main_layout.addWidget(io_box)
 
         self.table = QtWidgets.QTableWidget()
@@ -134,6 +138,7 @@ class MapAreasTab(QtWidgets.QWidget):
         self.load_table_btn.clicked.connect(self.on_load_table_clicked)
         self.save_edits_btn.clicked.connect(self.on_save_edits_clicked)
         self.reset_btn.clicked.connect(self.on_reset_clicked)
+        self.friend_events_to_battle_btn.clicked.connect(self.on_friend_events_to_battle_clicked)
 
     def _short_status(self, msg):
         return msg if len(msg) <= 120 else msg[:117] + "..."
@@ -151,6 +156,9 @@ class MapAreasTab(QtWidgets.QWidget):
 
     def get_original_csv(self):
         return "digivice_map_areas_original.csv" if self.is_digivice() else "d3_map_areas_original.csv"
+    
+    def get_all_encounters_to_battle_csv(self):
+        return ("digivice_map_areas_all_encounters_to_battle.csv" if self.is_digivice() else "d3_map_areas_all_encounters_to_battle.csv")
 
     def get_default_export_csv(self):
         name = "digivice_map_areas.csv" if self.is_digivice() else "d3_map_areas.csv"
@@ -378,6 +386,32 @@ class MapAreasTab(QtWidgets.QWidget):
         if res != QtWidgets.QMessageBox.StandardButton.Yes:
             return
         self.run_import_with_merge(original_csv, "Reset Map Areas", reload_after=True, preserve_hidden=False)
+
+    def on_friend_events_to_battle_clicked(self):
+        if not self.require_all():
+            return
+
+        csv_name = self.get_all_encounters_to_battle_csv()
+        source_csv = os.path.join(SCRIPT_DIR, csv_name)
+
+        if not os.path.isfile(source_csv):
+            QtWidgets.QMessageBox.critical(self,"Missing file", f"{csv_name} not found next to this GUI.")
+            return
+
+        res = QtWidgets.QMessageBox.warning(
+            self,
+            "Change Friend Events to Battle?",
+            "This will change all Friend and Event encounters to Battles (except adventure cast partners in D-3) in the BIN file.\n\n"
+            "Also, it will reset the map areas to the original version and you might have to reapply any customizations.\n\n"
+            "Continue?",
+            QtWidgets.QMessageBox.StandardButton.Yes |
+            QtWidgets.QMessageBox.StandardButton.No,
+        )
+
+        if res != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        self.run_import_with_merge(source_csv, "Change Friend Events to Battle", reload_after=True, preserve_hidden=False)
 
     # ---------------- script runners ----------------
 
