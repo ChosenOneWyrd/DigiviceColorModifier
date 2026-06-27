@@ -206,16 +206,16 @@ class SpritesTab(QtWidgets.QWidget):
         if self.current_bin_type_key == "D-3":
             hint_text = (
                 "<span style='color:red; font-weight:bold;font-size:14pt;'>RANGE HINT</span><br>"
-                "items: 50-99, tamer: 100-299, partner small sprites: 299-500, "
-                "partner big images: 500-699, friend small sprites: 699-1050, "
-                "friend big images: 1050-1349, digimon attacks: 1349-1399."
+                "items: 42-90, tamer: 137-288, baby digimon: 122-136, partner small sprites: 289-524, "
+                "partner big images: 525-687, friend small sprites: 688-1051, "
+                "friend big images: 1052-1311, digimon attacks: 1312-1376, evo effects: 1415-1851, boss scenes: 1858-1863"
             )
         elif self.current_bin_type_key == "Digivice":
             hint_text = (
                 "<span style='color:red; font-weight:bold;font-size:14pt;'>RANGE HINT</span><br>"
-                "items: 50-99, tamer: 100-249, partner small sprites: 249-450, "
-                "partner big images: 450-649, friend small sprites: 649-999, "
-                "friend big pictures: 999-1200, digimon attacks: 1200-1250."
+                "items: 22-58, tamer: 114-247, baby digimon: 93-113, partner small sprites: 248-463, "
+                "partner big images: 464-635, friend small sprites: 636-963, "
+                "friend big pictures: 964-1199, digimon attacks: 1200-1255, evo effects: 1308-1486, boss scenes: 1497-1502"
             )
         else:
             hint_text = "<span style='color:red; font-weight:bold;font-size:14pt;'>RANGE HINT</span><br>Select type of .bin file."
