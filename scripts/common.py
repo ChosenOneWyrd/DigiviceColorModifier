@@ -18,6 +18,11 @@ BIN_TYPES = {
         "label": "Digivice 25th Color Evolution",
         "sprite_package_offset": "0x196000",
     },
+    "D-ark": {
+        "max_sprite_index": 2064,
+        "label": "D-ark 25th Color Evolution",
+        "sprite_package_offset": "0x280000",
+    },
 }
 
 FORBIDDEN_CHARS = set("+-:<>?!~`'\"[]{}\\|@#$%^&*=,")

@@ -12,6 +12,8 @@ from names_tab import NamesTab
 from sounds_tab import SoundsTab
 from reduce_color_count_tab import ReduceColorCountTab
 from map_areas_tab import MapAreasTab
+from detach_shared_palettes_tab import DetachSharedPalettesTab
+from card_table_tab import CardTableTab
 
 # ----------------- Main Window + Dark Palette -----------------
 
@@ -96,6 +98,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.link_battle_tab = LinkBattleTableTab(self)
         self.map_areas_tab = MapAreasTab(self)
         self.sounds_tab = SoundsTab(self)
+        self.card_table_tab = CardTableTab(self)
+        self.detach_palettes_tab = DetachSharedPalettesTab(self)
 
         tabs.addTab(self.sprites_tab, "Sprites")
         tabs.addTab(self.reduce_color_tab, "Reduce Color Count")
@@ -105,6 +109,8 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.link_battle_tab, "Link Battle Table")
         tabs.addTab(self.map_areas_tab, "Map Areas")
         tabs.addTab(self.sounds_tab, "Sounds")
+        tabs.addTab(self.card_table_tab, "Card Table")
+        tabs.addTab(self.detach_palettes_tab, "Detach Shared Palettes")
 
         # show Sprites tab by default
         tabs.setCurrentIndex(0)
