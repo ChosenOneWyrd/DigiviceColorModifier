@@ -20,7 +20,7 @@ BIN_TYPES = {
     },
     "D-ark": {
         "max_sprite_index": 2064,
-        "label": "D-ark 25th Color Evolution",
+        "label": "D-Ark 25th Color Evolution",
         "sprite_package_offset": "0x280000",
     },
 }

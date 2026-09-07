@@ -10,7 +10,7 @@ from typing import Optional
 from pathlib import Path
 
 from common import *
-from scripts.set_d_ark_inventory import EMPTY_SLOT, INVENTORY_OFFSET, find_save_pair
+from set_d_ark_inventory import EMPTY_SLOT, INVENTORY_OFFSET, find_save_pair
 
 
 class SafeInternalScriptWorker(QtCore.QObject):
