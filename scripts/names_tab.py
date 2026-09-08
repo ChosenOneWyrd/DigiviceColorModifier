@@ -11,9 +11,10 @@ from common import *
 # ----------------- Names tab -----------------
 class NamesTab(QtWidgets.QWidget):
     """
-    Names tab — edits ALL D-3 names using:
-        export_d3_names.py
-        import_d3_names.py
+    Names tab — edits names for:
+        D-3 25th Color Evolution
+        Digivice 25th Color Evolution
+        D-ark 25th Color Evolution
     """
 
     def __init__(self, parent=None):
@@ -120,25 +121,66 @@ class NamesTab(QtWidgets.QWidget):
         return msg if len(msg) <= 100 else msg[:97] + "..."
     
     def get_names_export_script(self):
-        return "export_d3_names.py" if self.current_bin_type_key == "D-3" else "export_digivice_names.py"
+        if self.current_bin_type_key == "D-3":
+            return "export_d3_names.py"
+
+        if self.current_bin_type_key == "Digivice":
+            return "export_digivice_names.py"
+
+        if self.current_bin_type_key == "D-ark":
+            return "export_d_ark_names.py"
+
+        raise RuntimeError(f"Unsupported BIN type for names export: {self.current_bin_type_key}")
+
 
     def get_names_import_script(self):
-        return "import_d3_names.py" if self.current_bin_type_key == "D-3" else "import_digivice_names.py"
+        if self.current_bin_type_key == "D-3":
+            return "import_d3_names.py"
+
+        if self.current_bin_type_key == "Digivice":
+            return "import_digivice_names.py"
+
+        if self.current_bin_type_key == "D-ark":
+            return "import_d_ark_names.py"
+
+        raise RuntimeError(f"Unsupported BIN type for names import: {self.current_bin_type_key}")
+
 
     def get_names_original_csv(self):
-        return "d3_names_original.csv" if self.current_bin_type_key == "D-3" else "digivice_names_original.csv"
+        if self.current_bin_type_key == "D-3":
+            return "d3_names_original.csv"
+
+        if self.current_bin_type_key == "Digivice":
+            return "digivice_names_original.csv"
+
+        if self.current_bin_type_key == "D-ark":
+            return "d_ark_names_original.csv"
+
+        raise RuntimeError(f"Unsupported BIN type for original names: {self.current_bin_type_key}")
+
 
     def get_default_names_csv(self):
-        fn = "d3_names.csv" if self.current_bin_type_key == "D-3" else "digivice_names.csv"
-        return os.path.join(os.path.expanduser("~"), "Desktop", fn)
+        if self.current_bin_type_key == "D-3":
+            fn = "d3_names.csv"
+
+        elif self.current_bin_type_key == "Digivice":
+            fn = "digivice_names.csv"
+
+        elif self.current_bin_type_key == "D-ark":
+            fn = "d_ark_names.csv"
+
+        else:
+            fn = "names.csv"
+
+        return os.path.join(os.path.expanduser("~"), "Desktop", fn,)
 
     def require_all(self):
         if not self.current_bin_type_key:
             QtWidgets.QMessageBox.warning(self, "Missing type", "Select BIN type first.")
             return False
 
-        if self.current_bin_type_key not in ("D-3", "Digivice"):
-            QtWidgets.QMessageBox.warning(self, "Unsupported type", "Names editing is only enabled for D-3 and Digivice.")
+        if self.current_bin_type_key not in ("D-3", "Digivice", "D-ark"):
+            QtWidgets.QMessageBox.warning(self, "Unsupported type", "Names editing is only enabled for D-3, Digivice, and D-ark.")
             return False
 
         if not self.current_bin_path or not os.path.isfile(self.current_bin_path):
@@ -157,7 +199,7 @@ class NamesTab(QtWidgets.QWidget):
         else:
             self.current_bin_type_key = self.bin_type_combo.itemData(idx)
 
-        if self.current_bin_type_key in ("D-3", "Digivice"):
+        if self.current_bin_type_key in ("D-3", "Digivice", "D-ark"):
             self.export_csv_edit.setText(self.get_default_names_csv())
 
     def pick_bin(self):
@@ -233,7 +275,7 @@ class NamesTab(QtWidgets.QWidget):
 
         csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
-            "Select d3_names.csv",
+            "Select names csv",
             "",
             "CSV files (*.csv);;All files (*)"
         )
@@ -260,7 +302,7 @@ class NamesTab(QtWidgets.QWidget):
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
 
-        dlg = BusyDialog("Refresh", "Please wait...\nLoading names from D3.bin.", self)
+        dlg = BusyDialog("Refresh", "Please wait...\nLoading names from bin.", self)
 
         worker = InternalScriptWorker(
             script_name=script,

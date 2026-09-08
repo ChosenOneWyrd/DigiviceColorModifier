@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fast batch palette updater for D-3 25th Color / Digivice 25th Color / Tamagotchi Smart style BINs.
+Fast batch palette updater for D-3 25th Color / Digivice 25th Color / D-Ark 25th Color / Tamagotchi Smart style BINs.
 
 Compatible with digimon_tool_gui.py:
   - keeps FNAME_RE
@@ -144,9 +144,10 @@ def robust_scan(data: bytes):
     the known package offsets:
       D-3       0x1EF000
       Digivice  0x196000
+      D-Ark   0x280000
     If neither validates, it falls back to the old full scan.
     """
-    for known_off in (0x1EF000, 0x196000):
+    for known_off in (0x1EF000, 0x196000, 0x280000):
         result = _validate_package_at(data, known_off)
         if result is not None:
             block, offs = result
@@ -460,7 +461,7 @@ def main():
     ap.add_argument("--set-sprite-bank", action="store_true",
                     help="Force sprites in that subimage to use BANK parsed from filename")
     ap.add_argument("--package-offset", default=None,
-                    help="Override package base, e.g. 0x1EF000 for D-3 or 0x196000 for Digivice")
+                    help="Override package base: D-3=0x1EF000, Digivice=0x196000, D-Ark=0x280000")
     ap.add_argument("--dry-run", action="store_true", help="Do not write; just print actions")
     args = ap.parse_args()
 
