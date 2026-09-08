@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-export_d_ark_database_evolution.py
+export_d_ark_evolution_slots.py
 
 Export D-Ark 25th Color Database_Evolution line arrays to CSV.
 
@@ -11,8 +11,8 @@ The exporter also validates that the Partner Table slot_type_id field agrees
 with Database_Evolution membership for every Digimon ID 0..20.
 
 Usage:
-    python export_d_ark_database_evolution.py \
-        D-Ark.bin d_ark_database_evolution.csv
+    python export_d_ark_evolution_slots.py \
+        D-Ark.bin d_ark_evolution_slots.csv
 
 Known layout:
     0x000D7584  Guilmon line
@@ -151,7 +151,7 @@ def main():
     csv_out = (
         sys.argv[2]
         if len(sys.argv) >= 3
-        else "d_ark_database_evolution.csv"
+        else "d_ark_evolution_slots.csv"
     )
 
     data = Path(bin_in).read_bytes()

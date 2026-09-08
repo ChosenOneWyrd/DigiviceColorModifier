@@ -4,7 +4,7 @@ Replace one directly-addressable sprite image/subimage reference inside a
 D-Ark 25th Color animation scene.
 
 Example:
-    python replace_d_ark_animation_image.py \
+    python replace_d_ark_evo_image.py \
         D-Ark.bin 944 1884_2_0.png 1917_0_0.png D-Ark_out.bin
 
 What the PNG-style identifiers mean:
