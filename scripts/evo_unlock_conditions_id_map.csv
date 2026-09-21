@@ -1,0 +1,7 @@
+key,value
+unlocked_by_default,0
+win_after_previous_evolution,1
+unlock_after_map_area_clear,2
+win_after_previous_evolution + clear Area 42-3,3
+win_after_previous_evolution + clear Area 40-4,4
+Unlock all maps and all digimon,6

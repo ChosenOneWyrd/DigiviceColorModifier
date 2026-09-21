@@ -18,9 +18,57 @@ BIN_TYPES = {
         "label": "Digivice 25th Color Evolution",
         "sprite_package_offset": "0x196000",
     },
+    "D-ark": {
+        "max_sprite_index": 2064,
+        "label": "D-Ark 25th Color Evolution",
+        "sprite_package_offset": "0x280000",
+    },
 }
 
 FORBIDDEN_CHARS = set("+-:<>?!~`'\"[]{}\\|@#$%^&*=,")
+
+CARD_NAMES = {
+    1:  "High Speed Plug-In B",
+    2:  "Boost Chip",
+    3:  "Heavy Metal",
+    4:  "Aurvandil's Arrow",
+    5:  "Seed of Durability",
+    6:  "Devil Chip",
+    7:  "Training Grips",
+    8:  "White Wings",
+    9:  "High Speed Plug-In D",
+    10: "Alias!",
+    11: "Yuki Agumon",
+    12: "Snimon",
+    13: "Meramon",
+    14: "Inflating Space!!",
+    15: "High Speed Plug-In H",
+    16: "Offense Plug-In A",
+    17: "Metal Garurumon",
+    18: "Super Evolution Plug-In S",
+    19: "Blue Card",
+    20: "Brave Shield",
+    21: "Steel Drill",
+    22: "Power Charger",
+    23: "Thor Hammer",
+    24: "Strength Plug-In W",
+    25: "High Speed Plug-In T",
+    26: "Defense Plug-In G",
+    27: "Invalidation Plug-In P",
+    28: "Strength Plug-In O",
+    29: "Reload Plug-In Q",
+    30: "Handmade Blue Card",
+    31: "The Sparkle of Fate!!",
+    32: "King Device",
+    33: "Lady Devimon",
+    34: "Yukidarumon",
+    35: "Knight Device",
+    36: "Queen Device",
+    37: "Red Card",
+    38: "Battle Tomahawk",
+    39: "Aero Wing",
+    40: "Shellmon",
+}
 
 # --- PyInstaller/resource paths ---
 if getattr(sys, "frozen", False):
