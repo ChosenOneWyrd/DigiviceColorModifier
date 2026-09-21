@@ -196,9 +196,10 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
         self.d3_group_edit = QtWidgets.QLineEdit()
         self.d3_group_edit.setPlaceholderText("blank = automatic mapping when known")
         self.d3_group_edit.setToolTip(
-            "The current D-3 backend automatically maps 409→77, 410→79, "
-            "411→81, 412→83, and 413→85. Other animation IDs need a proven "
-            "scene-group override."
+            "Normally leave this blank. The D-3 backend uses established "
+            "special mappings where known, then automatically searches scene "
+            "groups structurally paired with the selected evolution controller. "
+            "Use an override only for a separately proven scene group."
         )
         edit_layout.addWidget(self.d3_group_label, 3, 0)
         edit_layout.addWidget(self.d3_group_edit, 3, 1, 1, 3)
@@ -766,44 +767,34 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
 
         if self.is_d3():
             group_text = self.d3_group_edit.text().strip()
+            forced_group = None
 
             if group_text:
                 try:
-                    scene_group = int(group_text, 0)
+                    forced_group = int(group_text, 0)
                 except Exception:
-                    raise RuntimeError("D-3 scene group override must be an integer.")
-            else:
-                if animation_id not in d3_backend.KNOWN_EVO_SCENE_GROUPS:
                     raise RuntimeError(
-                        f"D-3 animation {animation_id} has no automatic scene-group "
-                        "mapping in replace_d3_evo_image.py. Enter a proven D-3 "
-                        "scene group override."
+                        "D-3 scene group override must be an integer."
                     )
-                scene_group = d3_backend.KNOWN_EVO_SCENE_GROUPS[animation_id]
 
-            if not 0 <= scene_group < len(cache["groups"]):
-                raise RuntimeError(
-                    f"D-3 scene group {scene_group} is outside "
-                    f"0..{len(cache['groups']) - 1}."
-                )
-
-            matches = d3_backend.find_exact_matches(
-                cache["groups"][scene_group],
+            matches, scene_group, reason = d3_backend.resolve_scene_matches(
+                animation_id,
+                cache["groups"],
                 cache["records"],
+                cache["membership"],
                 len(pkg["images"]),
-                lambda image_index: self._sprite_subimage_count(pkg, image_index),
+                lambda image_index: self._sprite_subimage_count(
+                    pkg, image_index
+                ),
                 source_image,
                 source_subimage,
+                forced_group=forced_group,
             )
 
-            if not matches:
-                raise RuntimeError(
-                    f"{self.source_edit.text().strip()} is not referenced by "
-                    f"{self.animation_name(animation_id)} ({animation_id}) "
-                    f"in D-3 scene group {scene_group}."
-                )
-
-            return matches, f"D-3 scene group {scene_group}"
+            return (
+                matches,
+                f"D-3 scene group {scene_group}; {reason}",
+            )
 
         traced, seeds = dark_backend.traced_groups_for_animation(
             animation_id,
@@ -1186,25 +1177,32 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                 sections = d3_backend.parse_sections(data)
                 records = d3_backend.parse_animation_records(data, sections)
                 groups = d3_backend.parse_groups(data, sections)
+                membership = d3_backend.build_membership(groups)
 
                 group_text = self.d3_group_edit.text().strip()
+                forced_group = None
                 if group_text:
-                    scene_group = int(group_text, 0)
-                else:
-                    if animation_id not in d3_backend.KNOWN_EVO_SCENE_GROUPS:
+                    try:
+                        forced_group = int(group_text, 0)
+                    except Exception:
                         raise RuntimeError(
-                            f"D-3 animation {animation_id} needs a proven scene-group override."
+                            "D-3 scene group override must be an integer."
                         )
-                    scene_group = d3_backend.KNOWN_EVO_SCENE_GROUPS[animation_id]
 
                 num_images, sub_count_fn = d3_backend.parse_sprite_package(data)
-                matches = d3_backend.find_exact_matches(
-                    groups[scene_group],
-                    records,
-                    num_images,
-                    sub_count_fn,
-                    source_image,
-                    source_subimage,
+
+                matches, scene_group, _reason = (
+                    d3_backend.resolve_scene_matches(
+                        animation_id,
+                        groups,
+                        records,
+                        membership,
+                        num_images,
+                        sub_count_fn,
+                        source_image,
+                        source_subimage,
+                        forced_group=forced_group,
+                    )
                 )
 
                 if not matches:

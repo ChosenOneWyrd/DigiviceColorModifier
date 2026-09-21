@@ -43,10 +43,10 @@ The D3 late-evolution scene-family sequence is:
     evo_animation_id 412 -> group 83
     evo_animation_id 413 -> group 85
 
-For another animation ID, this program refuses to guess.  Supply a known group:
-
-    python replace_d3_evo_image.py \
-        D3.bin 500 123 456 D3_out.bin --group 100
+For other animation IDs, the program derives structurally paired scene groups
+from the selected evolution controller and only auto-selects when the exact
+source image/subimage identifies one unambiguous paired scene.  --group remains
+available as an explicit override for separately proven cases.
 
 Subimages
 ---------
@@ -583,24 +583,27 @@ def find_exact_matches(
     source_image,
     source_subimage,
 ):
+    """
+    Find every distinct exact IMAGE/SUBIMAGE reference in one animation group.
+
+    A group may list the same animation record in more than one slot (usually
+    the base record in slot 0 and again in an action slot).  Deduplicate by the
+    physical image-word location so the same firmware field is never patched
+    twice.
+    """
     matches = []
+    seen_offsets = set()
 
     for pair in group["pairs"]:
-        animation_id = pair[
-            "animation_id"
-        ]
+        animation_id = pair["animation_id"]
 
         if (
             animation_id == EMPTY_ID
-            or not 0 <= animation_id < len(
-                records
-            )
+            or not 0 <= animation_id < len(records)
         ):
             continue
 
-        record = records[
-            animation_id
-        ]
+        record = records[animation_id]
 
         for ref in all_image_refs(
             record,
@@ -608,16 +611,20 @@ def find_exact_matches(
             subimage_count,
         ):
             if (
-                ref["image_index"]
-                == source_image
-                and
-                ref["subimage_index"]
-                == source_subimage
+                ref["image_index"] == source_image
+                and ref["subimage_index"] == source_subimage
             ):
+                image_off = (
+                    record["start"]
+                    + ref["image_word_index"] * 2
+                )
+
+                if image_off in seen_offsets:
+                    continue
+                seen_offsets.add(image_off)
+
                 matches.append({
-                    "group_index": group[
-                        "group_index"
-                    ],
+                    "group_index": group["group_index"],
                     "slot": pair["slot"],
                     "animation_id": animation_id,
                     "record": record,
@@ -625,6 +632,327 @@ def find_exact_matches(
                 })
 
     return matches
+
+
+# ----------------------------------------------------------------------
+# D3 controller -> scene-group discovery
+# ----------------------------------------------------------------------
+
+def group_signature(group):
+    """
+    Structural signature of one fixed 67-slot group.
+
+    D3 uses several controller/scene families whose corresponding groups have
+    the same occupied slots and flags while their animation-record IDs are
+    shifted by a constant amount.
+    """
+    return tuple(
+        (
+            pair["animation_id"] != EMPTY_ID,
+            pair["flag"],
+        )
+        for pair in group["pairs"]
+    )
+
+
+def constant_record_delta(controller, candidate):
+    """
+    Return the constant record-ID delta when two groups are structurally paired.
+
+    Return None if the 67-slot masks/flags differ or if corresponding occupied
+    slots do not all use one constant animation-record shift.
+    """
+    if controller["group_index"] == candidate["group_index"]:
+        return None
+
+    if group_signature(controller) != group_signature(candidate):
+        return None
+
+    deltas = set()
+    compared = 0
+
+    for left, right in zip(
+        controller["pairs"],
+        candidate["pairs"],
+    ):
+        if left["animation_id"] == EMPTY_ID:
+            continue
+
+        compared += 1
+        deltas.add(
+            right["animation_id"]
+            - left["animation_id"]
+        )
+
+        if len(deltas) > 1:
+            return None
+
+    if compared < 2 or len(deltas) != 1:
+        return None
+
+    return next(iter(deltas))
+
+
+def structural_scene_candidates(
+    evo_animation_id,
+    groups,
+    records,
+    membership,
+    num_images,
+    subimage_count,
+    source_image,
+    source_subimage,
+):
+    """
+    Return structurally-paired scene groups for the selected controller
+    animation that contain the exact requested source reference.
+
+    This is deliberately narrower than a global "find this image anywhere"
+    scan.  It keeps the selected evo_animation_id part of the proof.
+    """
+    controller_memberships = membership.get(
+        evo_animation_id,
+        [],
+    )
+
+    if not controller_memberships:
+        return []
+
+    by_group = {}
+
+    for item in controller_memberships:
+        controller_index = item["group_index"]
+
+        if not 0 <= controller_index < len(groups):
+            continue
+
+        controller = groups[controller_index]
+
+        for candidate in groups:
+            delta = constant_record_delta(
+                controller,
+                candidate,
+            )
+
+            if delta is None or delta == 0:
+                continue
+
+            matches = find_exact_matches(
+                candidate,
+                records,
+                num_images,
+                subimage_count,
+                source_image,
+                source_subimage,
+            )
+
+            if not matches:
+                continue
+
+            key = candidate["group_index"]
+            entry = by_group.get(key)
+
+            new_entry = {
+                "scene_group": key,
+                "controller_group": controller_index,
+                "record_delta": delta,
+                "matches": matches,
+            }
+
+            # If the same scene group is reached from more than one controller
+            # membership, keep the first deterministic description.
+            if entry is None:
+                by_group[key] = new_entry
+
+    return [
+        by_group[key]
+        for key in sorted(by_group)
+    ]
+
+
+def resolve_scene_matches(
+    evo_animation_id,
+    groups,
+    records,
+    membership,
+    num_images,
+    subimage_count,
+    source_image,
+    source_subimage,
+    forced_group=None,
+):
+    """
+    Resolve the exact D3 scene that should be edited.
+
+    Priority:
+      1. Explicit --group override.
+      2. Hardware/structure-established special mapping (currently 409..413).
+      3. Automatic controller -> structurally-paired scene discovery.
+
+    For automatic structural discovery, exactly one paired scene group must
+    contain the exact source image/subimage.  Ambiguity is reported instead of
+    guessed.
+    """
+    if not 0 <= evo_animation_id < len(records):
+        raise RuntimeError(
+            f"evo_animation_id {evo_animation_id} is outside "
+            f"0..{len(records) - 1}"
+        )
+
+    if forced_group is not None:
+        if not 0 <= forced_group < len(groups):
+            raise RuntimeError(
+                f"group {forced_group} is outside "
+                f"0..{len(groups) - 1}"
+            )
+
+        matches = find_exact_matches(
+            groups[forced_group],
+            records,
+            num_images,
+            subimage_count,
+            source_image,
+            source_subimage,
+        )
+
+        if not matches:
+            raise RuntimeError(
+                f"No exact reference to image {source_image}, subimage "
+                f"{source_subimage} was found in explicit scene group "
+                f"{forced_group}."
+            )
+
+        return (
+            matches,
+            forced_group,
+            "explicit --group override",
+        )
+
+    # Preserve the separately established late-evolution mapping.  The older
+    # whole-controller structural pairing is NOT safe for these IDs (notably
+    # animation 410), so these mappings always take priority.
+    if evo_animation_id in KNOWN_EVO_SCENE_GROUPS:
+        scene_group = KNOWN_EVO_SCENE_GROUPS[
+            evo_animation_id
+        ]
+
+        if not 0 <= scene_group < len(groups):
+            raise RuntimeError(
+                f"known D3 scene group {scene_group} is outside "
+                f"0..{len(groups) - 1}"
+            )
+
+        matches = find_exact_matches(
+            groups[scene_group],
+            records,
+            num_images,
+            subimage_count,
+            source_image,
+            source_subimage,
+        )
+
+        if not matches:
+            raise RuntimeError(
+                f"No exact reference to image {source_image}, subimage "
+                f"{source_subimage} was found in the established D3 scene "
+                f"group {scene_group} for evo_animation_id "
+                f"{evo_animation_id}. If you have separately proven another "
+                "scene group for this source, enter it with --group."
+            )
+
+        return (
+            matches,
+            scene_group,
+            "established late-evolution scene mapping",
+        )
+
+    candidates = structural_scene_candidates(
+        evo_animation_id,
+        groups,
+        records,
+        membership,
+        num_images,
+        subimage_count,
+        source_image,
+        source_subimage,
+    )
+
+    if not candidates:
+        # Helpful diagnostics only: show where the exact source exists globally,
+        # but do not patch those groups because they are not structurally tied
+        # to the selected evolution controller.
+        global_groups = []
+        for group in groups:
+            matches = find_exact_matches(
+                group,
+                records,
+                num_images,
+                subimage_count,
+                source_image,
+                source_subimage,
+            )
+            if matches:
+                global_groups.append(
+                    (group["group_index"], len(matches))
+                )
+
+        extra = ""
+        if global_groups:
+            extra = (
+                " The source does exist elsewhere in the animation archive: "
+                + ", ".join(
+                    f"group {group_index} ({count} ref(s))"
+                    for group_index, count in global_groups
+                )
+                + ". Those groups were not auto-selected because no "
+                "controller-to-scene structural pairing with this evolution "
+                "was proven."
+            )
+
+        raise RuntimeError(
+            f"No structurally paired D3 scene group for evo_animation_id "
+            f"{evo_animation_id} contains image {source_image}, subimage "
+            f"{source_subimage}.{extra}"
+        )
+
+    if len(candidates) > 1:
+        lines = [
+            (
+                f"More than one structurally paired D3 scene group for "
+                f"evo_animation_id {evo_animation_id} contains image "
+                f"{source_image}, subimage {source_subimage}."
+            ),
+            "Nothing was changed because automatic selection is ambiguous.",
+            "Candidates:",
+        ]
+
+        for item in candidates:
+            lines.append(
+                f"  controller group {item['controller_group']} -> "
+                f"scene group {item['scene_group']}, "
+                f"record delta {item['record_delta']:+d}, "
+                f"{len(item['matches'])} exact reference(s)"
+            )
+
+        lines.append(
+            "Use --group GROUP_ID only after choosing the intended scene."
+        )
+
+        raise RuntimeError("\n".join(lines))
+
+    chosen = candidates[0]
+
+    reason = (
+        f"structurally paired with controller group "
+        f"{chosen['controller_group']} "
+        f"(record delta {chosen['record_delta']:+d})"
+    )
+
+    return (
+        chosen["matches"],
+        chosen["scene_group"],
+        reason,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -840,9 +1168,9 @@ def main():
         type=int,
         default=None,
         help=(
-            "Explicit scene-group override. Required "
-            "for evo IDs outside the currently mapped "
-            "409..413 late-evolution family."
+            "Explicit scene-group override. Normally leave blank: "
+            "the tool first uses established special mappings, then "
+            "tries controller-to-scene structural discovery."
         ),
     )
     ap.add_argument(
@@ -937,63 +1265,20 @@ def main():
         groups
     )
 
-    if args.group is not None:
-        scene_group = args.group
-        selection_reason = (
-            "explicit --group override"
+    matches, scene_group, selection_reason = (
+        resolve_scene_matches(
+            args.evo_animation_id,
+            groups,
+            records,
+            membership,
+            num_images,
+            subimage_count,
+            args.source_image,
+            args.source_subimage,
+            forced_group=args.group,
         )
-    else:
-        if (
-            args.evo_animation_id
-            not in KNOWN_EVO_SCENE_GROUPS
-        ):
-            known = ", ".join(
-                str(x)
-                for x in sorted(
-                    KNOWN_EVO_SCENE_GROUPS
-                )
-            )
-
-            raise RuntimeError(
-                f"No safely-established automatic "
-                f"scene-group mapping is encoded for "
-                f"evo_animation_id "
-                f"{args.evo_animation_id}. "
-                f"Known automatic IDs: {known}. "
-                "Use --group only if you have already "
-                "identified the correct scene group."
-            )
-
-        scene_group = (
-            KNOWN_EVO_SCENE_GROUPS[
-                args.evo_animation_id
-            ]
-        )
-        selection_reason = (
-            "known late-evolution "
-            "scene-family mapping"
-        )
-
-    if not (
-        0
-        <= scene_group
-        < len(groups)
-    ):
-        raise RuntimeError(
-            f"group {scene_group} is outside "
-            f"0..{len(groups) - 1}"
-        )
-
-    group = groups[scene_group]
-
-    matches = find_exact_matches(
-        group,
-        records,
-        num_images,
-        subimage_count,
-        args.source_image,
-        args.source_subimage,
     )
+
 
     print(
         f"evo_animation_id: "
