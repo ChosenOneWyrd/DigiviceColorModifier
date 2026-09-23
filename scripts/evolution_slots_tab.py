@@ -14,6 +14,10 @@ D-3:
     import_d3_evolution_slots.py
     d3_evolution_slots_original.csv
 
+    Saving also installs/updates the hardware-confirmed v7 all-line battle-selector
+    patch.  Baby, normal, and shared/Jogress Digimon therefore follow any
+    displayed slot order in both the Digivolution Viewer and battle selector.
+
 D-Ark:
     export_d_ark_evolution_slots.py
     import_d_ark_evolution_slots.py
@@ -185,7 +189,10 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
             "Each slot dropdown shows the current Digimon name from the selected "
             "BIN's Partner Table, but stores/writes the numeric digimon_id. "
             "Choose '-' for a blank slot. Non-empty slots must remain contiguous "
-            "from slot_1."
+            "from slot_1. For D-3, this order is used by both the Digivolution "
+            "Viewer and battle selector. Baby Digimon may be moved like other "
+            "non-shared forms. Shared/Jogress Digimon may be reordered "
+            "independently inside each required paired line."
         )
         hint.setWordWrap(True)
         main_layout.addWidget(hint)
@@ -955,7 +962,8 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 "This will update the selected BIN in place.\n\n"
                 "The evolution-line order/membership structures and Partner "
                 "Table line assignment will be synchronized by the validated "
-                "importer.\n\n"
+                "importer. For D-3, the hardware-confirmed v7 battle-selector "
+                "patch will also be installed or updated.\n\n"
                 "Continue?"
             ),
             QtWidgets.QMessageBox.StandardButton.Yes
@@ -1008,6 +1016,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 "using:\n"
                 f"{os.path.basename(original_csv)}\n\n"
                 "Partner Table line assignments will also be synchronized.\n"
+                "For D-3, battle-selector order will also be reset to match.\n"
                 "Game progress is not intentionally reset, but Evolution Slots "
                 "modding changes will be lost.\n\n"
                 "Continue?"
