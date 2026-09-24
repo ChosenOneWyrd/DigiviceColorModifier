@@ -14,9 +14,10 @@ D-3:
     import_d3_evolution_slots.py
     d3_evolution_slots_original.csv
 
-    Saving also installs/updates the hardware-confirmed v7 all-line battle-selector
-    patch.  Baby, normal, and shared/Jogress Digimon therefore follow any
-    displayed slot order in both the Digivolution Viewer and battle selector.
+    Saving installs/updates the hardware-confirmed v15 map-only selector.
+    Baby, normal, and shared/Jogress physical records follow the displayed
+    order in map battles, while Link Battle keeps the firmware's stock path.
+    Logical Link Battle digimon_id aliases are preserved.
 
 D-Ark:
     export_d_ark_evolution_slots.py
@@ -25,11 +26,11 @@ D-Ark:
 
 Slot cells are dropdowns:
     display text = current Digimon name from the selected BIN's Partner Table
-    stored value = numeric digimon_id
+    stored value = physical Partner record index
     "-"          = blank / FFFF
 
 Names are built dynamically by joining:
-    Partner Table digimon_id -> string_index
+    physical Partner record index -> string_index
 with:
     Names table string_index -> decoded name
 """
@@ -63,13 +64,10 @@ D3_LINE_NAMES = {
     6: "Terriermon Line",
 }
 
-D3_SHARED_ID_LINES = {
-    6: {0, 1},
-    7: {0, 1},
-    8: {0, 1},
-    9: {0, 1},
-    13: {2, 3},
-    20: {4, 5},
+D3_SUPPORTED_SHARED_PAIRS = {
+    frozenset({0, 1}),
+    frozenset({2, 3}),
+    frozenset({4, 5}),
 }
 
 DARK_LINE_NAMES = {
@@ -96,8 +94,13 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         self.current_bin_type_key: Optional[str] = None
         self.current_bin_path: Optional[str] = None
 
-        # digimon_id -> display name from current Partner Table/string table
+        # physical Partner record index -> current display name
         self.digimon_names = {}
+
+        # physical D-3 Partner record index -> current stage.  This lets the
+        # GUI reject a line with more than the selector's 9 active choices
+        # before the backend importer is launched.
+        self.d3_record_stages = {}
 
         # Per-row fields not shown in editable widgets, e.g. D-Ark line_offset.
         self.hidden_rows = {}
@@ -186,13 +189,15 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         main_layout.addWidget(io_box)
 
         hint = QtWidgets.QLabel(
-            "Each slot dropdown shows the current Digimon name from the selected "
-            "BIN's Partner Table, but stores/writes the numeric digimon_id. "
+            "Each D-3 slot dropdown shows the current Digimon name, physical "
+            "Partner record, and logical Link ID. It stores the physical record. "
             "Choose '-' for a blank slot. Non-empty slots must remain contiguous "
             "from slot_1. For D-3, this order is used by both the Digivolution "
-            "Viewer and battle selector. Baby Digimon may be moved like other "
-            "non-shared forms. Shared/Jogress Digimon may be reordered "
-            "independently inside each required paired line."
+            "Viewer and battle selector. Every physical record must appear at "
+            "least once. A record may appear twice only in Vmon+Wormmon, "
+            "Hawkmon+Tailmon, or Armadimon+Patamon; deleting one occurrence "
+            "sacrifices that extra Jogress membership safely. Each line may "
+            "contain at most 9 records whose current stage is greater than 0."
         )
         hint.setWordWrap(True)
         main_layout.addWidget(hint)
@@ -309,6 +314,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         self.export_csv_edit.setText(self.default_export_csv_path())
 
         self.digimon_names = {}
+        self.d3_record_stages = {}
         self.hidden_rows = {}
         self._table_loaded = False
         self.table.clear()
@@ -371,7 +377,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
     def build_digimon_name_map_from_bin(self):
         """
         Build:
-            digimon_id -> current decoded partner name
+            physical Partner record index -> current decoded partner name
 
         This deliberately derives the labels from the selected BIN instead of
         hardcoding the stock names, so Partner Table/name edits are reflected.
@@ -409,18 +415,32 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                         names_by_string[string_index] = name
 
             result = {}
+            d3_stages = {}
             with open(partner_csv, "r", encoding="utf-8-sig", newline="") as f:
-                for row in csv.DictReader(f):
+                partner_rows = list(csv.DictReader(f))
+
+                for physical_index, row in enumerate(partner_rows):
                     digimon_text = str(row.get("digimon_id", "")).strip()
                     string_index = str(row.get("string_index", "")).strip()
 
-                    if not digimon_text:
-                        continue
-
-                    try:
-                        digimon_id = int(digimon_text, 0)
-                    except Exception:
-                        continue
+                    if self.is_d3():
+                        # D-3 Link-safe extra slots may intentionally make the
+                        # stored digimon_id non-unique.  Evolution structures
+                        # always address the 38 physical records by position.
+                        digimon_id = physical_index
+                        try:
+                            d3_stages[physical_index] = int(
+                                str(row.get("stage", "0")).strip() or "0", 0
+                            )
+                        except Exception:
+                            d3_stages[physical_index] = 0
+                    else:
+                        if not digimon_text:
+                            continue
+                        try:
+                            digimon_id = int(digimon_text, 0)
+                        except Exception:
+                            continue
 
                     if digimon_id not in self.expected_partner_ids():
                         continue
@@ -428,19 +448,31 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                     name = names_by_string.get(string_index, "").strip()
                     if not name:
                         raise RuntimeError(
-                            f"Could not resolve a decoded name for Digimon ID "
+                            f"Could not resolve a decoded name for physical record "
                             f"{digimon_id} (string_index {string_index})."
                         )
 
-                    result[digimon_id] = name
+                    if self.is_d3():
+                        try:
+                            link_id = int(digimon_text, 0)
+                        except Exception:
+                            link_id = "?"
+                        result[digimon_id] = (
+                            f"{name} [record {digimon_id}; Link ID {link_id}]"
+                        )
+                    else:
+                        result[digimon_id] = name
 
             expected = set(self.expected_partner_ids())
             missing = sorted(expected - set(result))
             if missing:
                 raise RuntimeError(
-                    "Could not build Partner Table names for Digimon ID(s): "
+                    "Could not build Partner Table names for physical record(s): "
                     + ", ".join(str(x) for x in missing)
                 )
+
+            if self.is_d3():
+                self.d3_record_stages = d3_stages
 
             return result
 
@@ -718,44 +750,55 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
 
             return
 
-        # D-3 complete membership constraints.
+        # D-3 v15 physical membership constraints.  A record may be direct or
+        # shared in exactly one of the firmware-supported line pairs.
         expected_ids = set(range(38))
 
         missing = sorted(expected_ids - set(occurrences))
         if missing:
             raise RuntimeError(
-                "Every D-3 partner Digimon ID 0..37 must remain represented. "
+                "Every D-3 physical Partner record 0..37 must remain represented. "
                 "Missing: "
                 + ", ".join(self.digimon_names.get(x, str(x)) for x in missing)
             )
 
-        for digimon_id, expected_lines in D3_SHARED_ID_LINES.items():
-            actual_lines = set(occurrences.get(digimon_id, []))
-            if actual_lines != expected_lines:
-                expected_names = [D3_LINE_NAMES[x] for x in sorted(expected_lines)]
-                actual_names = [D3_LINE_NAMES[x] for x in sorted(actual_lines)]
-                raise RuntimeError(
-                    f"{self.digimon_names.get(digimon_id, str(digimon_id))} "
-                    f"is a protected shared evolution and must remain in "
-                    f"{expected_names}; found {actual_names}."
-                )
-
         for digimon_id in range(38):
-            if digimon_id in D3_SHARED_ID_LINES:
-                continue
-
             actual = occurrences.get(digimon_id, [])
-            if len(actual) != 1:
-                raise RuntimeError(
-                    f"{self.digimon_names.get(digimon_id, str(digimon_id))} "
-                    f"must appear exactly once; found {len(actual)} occurrence(s)."
-                )
+            if len(actual) == 1:
+                continue
+            if len(actual) == 2 and frozenset(actual) in D3_SUPPORTED_SHARED_PAIRS:
+                continue
+            actual_names = [D3_LINE_NAMES[x] for x in sorted(set(actual))]
+            detail = (
+                f"appears {len(actual)} times"
+                if len(actual) > 2
+                else f"uses unsupported line pair {actual_names}"
+            )
+            raise RuntimeError(
+                f"{self.digimon_names.get(digimon_id, str(digimon_id))} "
+                f"{detail}. Use one line, or one supported shared pair."
+            )
 
         total = sum(len(v) for v in occurrences.values())
-        if total != 44:
+        if total > 44:
             raise RuntimeError(
-                f"D-3 requires exactly 44 total complete-line occurrences; found {total}."
+                f"D-3 has capacity for at most 44 complete-line occurrences; "
+                f"found {total}."
             )
+
+        for row in rows:
+            active = sum(
+                1
+                for slot_name in SLOT_COLUMNS
+                if row.get(slot_name, "") != ""
+                and self.d3_record_stages.get(int(row[slot_name]), 0) > 0
+            )
+            if active > 9:
+                raise RuntimeError(
+                    f"{row['line_name']} has {active} active battle choices. "
+                    "The D-3 map selector can safely hold at most 9; move or "
+                    "deactivate at least one stage > 0 record."
+                )
 
     def write_rows_to_csv(self, rows, path):
         if self.is_d3():
@@ -962,8 +1005,9 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 "This will update the selected BIN in place.\n\n"
                 "The evolution-line order/membership structures and Partner "
                 "Table line assignment will be synchronized by the validated "
-                "importer. For D-3, the hardware-confirmed v7 battle-selector "
-                "patch will also be installed or updated.\n\n"
+                "importer. For D-3, the hardware-confirmed v15 map-only "
+                "selector will also be installed or updated. Link Battle "
+                "keeps its stock selector path.\n\n"
                 "Continue?"
             ),
             QtWidgets.QMessageBox.StandardButton.Yes

@@ -1,20 +1,27 @@
-import sys
+#!/usr/bin/env python3
+"""Import all 38 Partner rows, then atomically resynchronize Evolution Slots.
+
+This is the order-independent replacement for the older Partner importer.  It
+never edits the Link Battle tables.  If the resulting active logical-ID set is
+not exactly the fixed 33-row Link roster, the output is refused.
+"""
+
+import argparse
 import csv
-import struct
 from pathlib import Path
+import struct
 
-if len(sys.argv) >= 4:
-    BIN_IN = sys.argv[1]
-    CSV_IN = sys.argv[2]
-    BIN_OUT = sys.argv[3]
-else:
-    BIN_IN = "D3.bin"
-    CSV_IN = "d3_partner_table.csv"
-    BIN_OUT = "D3.bin"
+from d3_evolution_core import (
+    PARTNER_COUNT,
+    PARTNER_RECORD_SIZE,
+    PARTNER_TABLE_OFFSET,
+    atomic_write,
+    changed_ranges,
+    format_report,
+    sha256_bytes,
+    synchronize_existing_bin,
+)
 
-TABLE_START = 0x0009D950
-BLOCK_SIZE = 0x20
-MAX_RECORDS = 38
 
 HEADERS = [
     "meta_offset",
@@ -37,64 +44,95 @@ HEADERS = [
     "special_unlock",
 ]
 
-data = bytearray(Path(BIN_IN).read_bytes())
+DATA_HEADERS = [
+    "stage",
+    "digimon_id",
+    "jogress_win_partner_id",
+    "win_requirement_for_next_evo",
+    "sprite_index",
+    "string_index",
+    "evo_animation1_id",
+    "evo_animation2_id",
+    "evo_animation3_id",
+    "evo_animation4_id",
+    "evo_animation5_id",
+    "background_music_during_battle_id",
+    "attack_voice_sound_id",
+    "attack_shot_sprite_index",
+    "attack_shot_sound_id",
+    "special_unlock",
+]
 
-with open(CSV_IN, newline="", encoding="utf-8-sig") as f:
-    reader = csv.DictReader(f)
-    rows = list(reader)
 
-missing = [h for h in HEADERS if h not in reader.fieldnames]
-if missing:
-    raise RuntimeError(f"CSV missing columns: {missing}")
+def value(row: dict[str, str], column: str, row_number: int) -> int:
+    try:
+        result = int(str(row[column]).strip(), 0)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"CSV row {row_number}, {column}: invalid uint16 value"
+        ) from exc
+    if not 0 <= result <= 0xFFFF:
+        raise RuntimeError(
+            f"CSV row {row_number}, {column}: {result} is outside uint16"
+        )
+    return result
 
-if len(rows) > MAX_RECORDS:
-    raise RuntimeError(f"CSV has {len(rows)} rows, max allowed is {MAX_RECORDS}")
 
-def read_u16(row, name, row_num):
-    value = int(str(row[name]).strip(), 0)
-    if not (0 <= value <= 65535):
-        raise ValueError(f"Row {row_num}, {name}: {value} is outside uint16 range")
-    return value
-
-for i, row in enumerate(rows):
-    row_num = i + 1
-
-    meta_off = TABLE_START + i * BLOCK_SIZE
-    data_off = TABLE_START + (i + 1) * BLOCK_SIZE
-
-    stage = read_u16(row, "stage", row_num)
-    digimon_id = read_u16(row, "digimon_id", row_num)
-    jogress_win_partner_id = read_u16(row, "jogress_win_partner_id", row_num)
-    win_req = read_u16(row, "win_requirement_for_next_evo", row_num)
-
-    struct.pack_into(
-        "<4H",
-        data,
-        meta_off + 12 * 2,
-        stage,
-        digimon_id,
-        jogress_win_partner_id,
-        win_req,
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Import D-3 Partner Table and resynchronize selector v15"
     )
+    parser.add_argument("bin_in")
+    parser.add_argument("csv")
+    parser.add_argument("bin_out")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
 
-    visual_values = [
-        read_u16(row, "sprite_index", row_num),
-        read_u16(row, "string_index", row_num),
-        read_u16(row, "evo_animation1_id", row_num),
-        read_u16(row, "evo_animation2_id", row_num),
-        read_u16(row, "evo_animation3_id", row_num),
-        read_u16(row, "evo_animation4_id", row_num),
-        read_u16(row, "evo_animation5_id", row_num),
-        read_u16(row, "background_music_during_battle_id", row_num),
-        read_u16(row, "attack_voice_sound_id", row_num),
-        read_u16(row, "attack_shot_sprite_index", row_num),
-        read_u16(row, "attack_shot_sound_id", row_num),
-        read_u16(row, "special_unlock", row_num),
-    ]
+    with open(args.csv, "r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise RuntimeError("CSV has no header")
+        missing = [name for name in HEADERS if name not in reader.fieldnames]
+        if missing:
+            raise RuntimeError("CSV missing columns: " + ", ".join(missing))
+        rows = list(reader)
+    if len(rows) != PARTNER_COUNT:
+        raise RuntimeError(
+            f"Partner CSV must contain exactly {PARTNER_COUNT} physical rows; "
+            f"found {len(rows)}"
+        )
 
-    struct.pack_into("<12H", data, data_off, *visual_values)
+    original = Path(args.bin_in).read_bytes()
+    data = bytearray(original)
+    for index, row in enumerate(rows):
+        values = [value(row, name, index + 2) for name in DATA_HEADERS]
+        struct.pack_into(
+            "<16H",
+            data,
+            PARTNER_TABLE_OFFSET + index * PARTNER_RECORD_SIZE,
+            *values,
+        )
 
-Path(BIN_OUT).write_bytes(data)
+    lines, source_kind, notes, changes, report = synchronize_existing_bin(data)
+    print(f"Evolution order recovered from: {source_kind}")
+    for note in notes:
+        print("Reconciled: " + note)
+    print(format_report(report))
+    print(f"Synchronization changes: {len(changes)} fields/words")
+    print(
+        "Changed byte ranges: "
+        + ", ".join(
+            f"0x{start:06X}-0x{end - 1:06X}"
+            for start, end in changed_ranges(original, bytes(data))
+        )
+    )
+    print(f"Output SHA-256: {sha256_bytes(data)}")
+    if args.dry_run:
+        print("Dry run: no file written")
+        return
+    atomic_write(args.bin_out, data)
+    print(f"Wrote: {args.bin_out}")
 
-print(f"Imported {len(rows)} rows")
-print(f"Wrote {BIN_OUT}")
+
+if __name__ == "__main__":
+    main()
