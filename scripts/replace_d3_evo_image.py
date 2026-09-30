@@ -28,7 +28,9 @@ Important behavior
   selected evolution scene, every exact occurrence is changed.  This is
   necessary for cases such as animation 410, where group 79 contains two
   meaningful image-338 references.
-- It changes animation-command references only.
+- It changes animation image references or isolated particle image fields.
+- Particle support requires d3_particle_effects.py alongside this file.
+- Use --source-bank for a particle variant; palette-bank changes are refused.
 - It NEVER edits the sprite package itself, so the original image remains
   unchanged for normal appearances elsewhere.
 - Animation record sizes and offset tables are never changed.
@@ -96,6 +98,8 @@ DEFAULT_SUBIMAGE_OPCODES = {
     0x8001,
     0x8201,
     0x8601,
+    0x8801,
+    0x8C01,
     0xC201,
 }
 EXPLICIT_SUBIMAGE_OPCODES = {
@@ -108,6 +112,7 @@ ALL_IMAGE_OPCODES = DEFAULT_SUBIMAGE_OPCODES | EXPLICIT_SUBIMAGE_OPCODES
 
 # Current experimentally/structurally established late-evolution family.
 KNOWN_EVO_SCENE_GROUPS = {
+    407: 65,
     409: 77,
     410: 79,
     411: 81,
@@ -298,6 +303,8 @@ def parse_sections(data):
             "are not monotonic"
         )
 
+    from d3_shared_scene import archive_end
+    dynamic_end = archive_end(data, [ARCHIVE_BASE + x*2 for x in word_offsets])
     sections = []
 
     for i, word_off in enumerate(
@@ -314,10 +321,7 @@ def parse_sections(data):
                 + word_offsets[i + 1] * 2
             )
         else:
-            end = (
-                ARCHIVE_BASE
-                + ARCHIVE_SIZE
-            )
+            end = dynamic_end
 
         sections.append({
             "index": i,
@@ -504,6 +508,8 @@ def all_image_refs(
         8001 IMAGE
         8201 IMAGE ...
         8601 IMAGE ...
+        8801 IMAGE ...
+        8C01 IMAGE ...
         C201 IMAGE ...
 
     Explicit-subimage forms:
@@ -786,7 +792,7 @@ def resolve_scene_matches(
 
     Priority:
       1. Explicit --group override.
-      2. Hardware/structure-established special mapping (currently 409..413).
+      2. Hardware/structure-established special mapping (including 407 and 409..413).
       3. Automatic controller -> structurally-paired scene discovery.
 
     For automatic structural discovery, exactly one paired scene group must
@@ -856,8 +862,7 @@ def resolve_scene_matches(
                 f"No exact reference to image {source_image}, subimage "
                 f"{source_subimage} was found in the established D3 scene "
                 f"group {scene_group} for evo_animation_id "
-                f"{evo_animation_id}. If you have separately proven another "
-                "scene group for this source, enter it with --group."
+                f"{evo_animation_id}."
             )
 
         return (
@@ -955,6 +960,97 @@ def resolve_scene_matches(
     )
 
 
+
+def resolve_evolution_matches(data, evo_animation_id, groups, records,
+                              membership, num_images, subimage_count,
+                              source_image, source_subimage, source_bank=0,
+                              forced_group=None, particle_archive=None):
+    """Resolve particle image definitions before the established scene path.
+
+    Palette-bank selection applies to recognized particle definitions only.
+    Existing ordinary scene replacement behavior remains available.
+    """
+    from d3_particle_effects import Archive
+    archive = particle_archive if particle_archive is not None else Archive(data)
+    try:
+        selected = archive.select(evo_animation_id, source_image, source_subimage,
+                                  source_bank) if evo_animation_id in archive.roots else []
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if selected:
+        matches = particle_matches(archive, evo_animation_id, selected,
+                                   source_image, source_subimage, source_bank)
+        reason = (f"particle effect(s) {', '.join(str(r['effect_id']) for r in selected)}; "
+                  f'layout {evo_animation_id} -> root {archive.roots[evo_animation_id]}; '
+                  f'subimage {source_subimage}; bank {source_bank}; palette settings preserved')
+        return matches, -1, reason
+    if forced_group is None:
+        from d3_shared_scene import resolve
+        isolated = resolve(archive, evo_animation_id, source_image, source_subimage,
+                           source_bank, membership)
+        if isolated:
+            return isolated, -1, (f"isolated scene clone of record {isolated[0]['animation_id']}; "
+                                  f"layout {evo_animation_id}; bank {source_bank}; "
+                                  "shared original preserved")
+    return resolve_scene_matches(evo_animation_id, groups, records, membership,
+                                 num_images, subimage_count, source_image,
+                                 source_subimage, forced_group=forced_group)
+
+
+def particle_matches(archive, evo, rows, image, subimage, bank):
+    return [{
+        'group_index': -1, 'slot': row['effect_id'],
+        'animation_id': row['record_chain'][-1],
+        'record': {'start': row['image_offset'] - 2},
+        'ref': {'kind': 'particle', 'opcode': 0x800F,
+                'image_word_index': 1, 'subimage_word_index': 3,
+                'subimage_max_word_index': 4 if row['random_subimage'] else None,
+                'image_index': image, 'subimage_index': subimage,
+                'source_bank': bank},
+        'effect_id': row['effect_id'], 'root_animation_id': archive.roots[evo],
+        'same_root_layout_aliases': row['same_root_layout_aliases'],
+    } for row in rows]
+
+
+def validate_replacement(matches, replacement_subimage, replacement_bank=None):
+    for match in matches:
+        ref = match['ref']
+        if ref['kind'] == 'isolated_scene':
+            if not 0 <= replacement_subimage <= 0xffff:
+                raise RuntimeError('Subimage must fit uint16.')
+            if replacement_bank is not None and replacement_bank != ref['source_bank']:
+                raise RuntimeError('Isolated scene replacement preserves the source palette bank.')
+        elif ref['kind'] == 'particle':
+            if not 0 <= replacement_subimage <= 511:
+                raise RuntimeError('Particle subimage must be in the firmware range 0..511.')
+            if replacement_bank is not None and replacement_bank != ref['source_bank']:
+                raise RuntimeError(
+                    'Particle palette changes are not implemented. Keep the destination '
+                    f"bank at {ref['source_bank']} to preserve this effect's palette behavior.")
+        elif ref['kind'] != 'explicit' and replacement_subimage != 0:
+            raise RuntimeError('The compact source command cannot select a nonzero subimage.')
+
+
+def allowed_patch_offsets(matches):
+    """Exact image/subimage fields authorized by the resolved edit."""
+    allowed = set()
+    for match in matches:
+        ref, rec = match['ref'], match['record']
+        if ref['kind'] == 'isolated_scene':
+            from d3_shared_scene import allowed_offsets
+            allowed.update(allowed_offsets(match))
+            continue
+        indices = [ref['image_word_index']]
+        if ref['kind'] in ('explicit', 'particle'):
+            indices.append(ref['subimage_word_index'])
+        if ref.get('subimage_max_word_index') is not None:
+            indices.append(ref['subimage_max_word_index'])
+        for index in indices:
+            off = rec['start'] + index * 2
+            allowed.update((off, off + 1))
+    return allowed
+
+
 # ----------------------------------------------------------------------
 # Patch
 # ----------------------------------------------------------------------
@@ -964,7 +1060,29 @@ def patch_matches(
     matches,
     replacement_image,
     replacement_subimage,
+    replacement_bank=None,
 ):
+    validate_replacement(matches, replacement_subimage, replacement_bank)
+    if any(m['ref']['kind'] == 'isolated_scene' for m in matches):
+        if len(matches) != 1:
+            raise RuntimeError('An isolated scene clone must be saved as a separate edit.')
+        from d3_shared_scene import patch
+        return patch(data, matches[0], replacement_image, replacement_subimage, replacement_bank)
+    # Validate every particle field and allocation before mutating the buffer.
+    if any(m['ref']['kind'] == 'particle' for m in matches):
+        count, sub_count = parse_sprite_package(data)
+        if not 0 <= replacement_image < count or not 0 <= replacement_subimage < sub_count(replacement_image):
+            raise RuntimeError('Replacement image/subimage is outside the sprite allocation.')
+        for m in matches:
+            r=m['ref'];start=m['record']['start']
+            if r['kind'] != 'particle':continue
+            if not 0 <= r['image_index'] < count or not 0 <= r['subimage_index'] < sub_count(r['image_index']):
+                raise RuntimeError('Source image/subimage is outside the sprite allocation.')
+            indices=[(1,r['image_index']),(3,r['subimage_index'])]
+            if r.get('subimage_max_word_index') is not None:
+                indices.append((4,r['subimage_index']))
+            if any(le16(data,start+i*2)!=value for i,value in indices):
+                raise RuntimeError('Particle source fields changed during planning.')
     changes = []
 
     for match in matches:
@@ -1011,7 +1129,7 @@ def patch_matches(
             "new": replacement_image,
         })
 
-        if ref["kind"] == "explicit":
+        if ref["kind"] in ("explicit", "particle"):
             sub_off = (
                 record["start"]
                 + ref[
@@ -1054,6 +1172,17 @@ def patch_matches(
                     "old": old_sub,
                     "new": replacement_subimage,
                 })
+
+            max_index = ref.get('subimage_max_word_index')
+            if max_index is not None:
+                max_off = record['start'] + max_index * 2
+                old_max = le16(data, max_off)
+                if old_max != replacement_subimage:
+                    struct.pack_into('<H', data, max_off, replacement_subimage)
+                    changes.append({'group': match['group_index'], 'slot': match['slot'],
+                                    'record': match['animation_id'], 'opcode': ref['opcode'],
+                                    'offset': max_off, 'field': 'subimage_max',
+                                    'old': old_max, 'new': replacement_subimage})
 
         elif replacement_subimage != 0:
             raise RuntimeError(
@@ -1178,6 +1307,9 @@ def main():
         action="store_true",
     )
 
+    ap.add_argument("--source-bank", type=int, choices=range(16), default=0)
+    ap.add_argument("--replacement-bank", type=int, choices=range(16), default=None,
+                    help="Particle bank must match source; defaults to source bank.")
     args = ap.parse_args()
 
     src = Path(args.input_bin)
@@ -1266,7 +1398,8 @@ def main():
     )
 
     matches, scene_group, selection_reason = (
-        resolve_scene_matches(
+        resolve_evolution_matches(
+            data,
             args.evo_animation_id,
             groups,
             records,
@@ -1275,6 +1408,7 @@ def main():
             subimage_count,
             args.source_image,
             args.source_subimage,
+            source_bank=args.source_bank,
             forced_group=args.group,
         )
     )
@@ -1341,6 +1475,7 @@ def main():
         {
             m["animation_id"]
             for m in matches
+            if m["ref"]["kind"] not in ("particle", "isolated_scene")
         }
     )
 
@@ -1405,6 +1540,7 @@ def main():
         matches,
         args.replacement_image,
         args.replacement_subimage,
+        replacement_bank=args.replacement_bank,
     )
 
     # Hard safety property:
@@ -1423,7 +1559,8 @@ def main():
             "written."
         )
 
-    # Every changed byte must lie within the animation payload.
+    # Only fields resolved for this edit may change, including particle fields.
+    allowed_offsets = allowed_patch_offsets(matches)
     payload_sec = sections[
         ANIMATION_PAYLOAD_SECTION
     ]
@@ -1443,17 +1580,13 @@ def main():
     outside = [
         off
         for off in diff_offsets
-        if not (
-            payload_sec["start"]
-            <= off
-            < payload_sec["end"]
-        )
+        if off not in allowed_offsets
     ]
 
     if outside:
         raise RuntimeError(
             "Safety check failed: byte(s) outside "
-            "the animation payload would change: "
+            "the selected image/subimage fields would change: "
             + ", ".join(
                 f"0x{x:08X}"
                 for x in outside[:20]

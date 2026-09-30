@@ -759,7 +759,7 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
         self._cache_key = key
         return self._cache
 
-    def _find_source_matches(self, animation_id, source_image, source_subimage):
+    def _find_source_matches(self, animation_id, source_image, source_subimage, source_bank=0):
         cache = self.get_bin_cache()
         pkg = cache["sprite"]
 
@@ -777,8 +777,11 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                         "D-3 scene group override must be an integer."
                     )
 
-            matches, scene_group, reason = d3_backend.resolve_scene_matches(
-                animation_id,
+            if "particle_archive" not in cache:
+                from d3_particle_effects import Archive
+                cache["particle_archive"] = Archive(cache["data"])
+            matches, scene_group, reason = d3_backend.resolve_evolution_matches(
+                cache["data"], animation_id,
                 cache["groups"],
                 cache["records"],
                 cache["membership"],
@@ -788,12 +791,14 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                 ),
                 source_image,
                 source_subimage,
+                source_bank=source_bank,
                 forced_group=forced_group,
+                particle_archive=cache["particle_archive"],
             )
 
             return (
                 matches,
-                f"D-3 scene group {scene_group}; {reason}",
+                reason if scene_group == -1 else f"D-3 scene group {scene_group}; {reason}",
             )
 
         traced, seeds = dark_backend.traced_groups_for_animation(
@@ -859,7 +864,7 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                     source_text
                 )
                 matches, detail = self._find_source_matches(
-                    animation_id, source_image, source_subimage
+                    animation_id, source_image, source_subimage, _source_bank
                 )
 
                 offsets = []
@@ -904,6 +909,8 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                 self._validate_sprite_identifier(pkg, dest_image, dest_subimage)
 
                 if self._source_exists:
+                    if self.is_d3():
+                        d3_backend.validate_replacement(matches, dest_subimage, _dest_bank)
                     source_image, source_subimage, _source_bank = self.parse_image_name(
                         source_text
                     )
@@ -1150,7 +1157,7 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
             f"Animation: {self.animation_name(animation_id)} ({animation_id})\n"
             f"Source: {source_text}\n"
             f"Destination: {destination_text}\n\n"
-            "Only animation image/subimage references are changed; the sprite "
+            "Image references are updated; shared scene leaves may be cloned and archive tables relocated. The sprite "
             "package itself is not modified.\n\nContinue?",
             QtWidgets.QMessageBox.StandardButton.Yes
             | QtWidgets.QMessageBox.StandardButton.No,
@@ -1192,8 +1199,8 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                 num_images, sub_count_fn = d3_backend.parse_sprite_package(data)
 
                 matches, scene_group, _reason = (
-                    d3_backend.resolve_scene_matches(
-                        animation_id,
+                    d3_backend.resolve_evolution_matches(
+                        data, animation_id,
                         groups,
                         records,
                         membership,
@@ -1201,6 +1208,7 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                         sub_count_fn,
                         source_image,
                         source_subimage,
+                        source_bank=source_bank,
                         forced_group=forced_group,
                     )
                 )
@@ -1212,10 +1220,11 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                     )
 
                 changes = d3_backend.patch_matches(
-                    data, matches, dest_image, dest_subimage
+                    data, matches, dest_image, dest_subimage, replacement_bank=dest_bank
                 )
                 package_base = d3_backend.SPRITE_PACKAGE_BASE
                 payload = sections[d3_backend.ANIMATION_PAYLOAD_SECTION]
+                allowed_offsets = d3_backend.allowed_patch_offsets(matches)
 
             else:
                 sections = dark_backend.parse_sections(data)
@@ -1301,11 +1310,12 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
             outside = [
                 off
                 for off in diffs
-                if not (payload["start"] <= off < payload["end"])
+                if (off not in allowed_offsets if self.is_d3()
+                    else not (payload["start"] <= off < payload["end"]))
             ]
             if outside:
                 raise RuntimeError(
-                    "Safety check failed: bytes outside the animation payload "
+                    "Safety check failed: bytes outside the permitted image fields "
                     "would change: "
                     + ", ".join(f"0x{x:08X}" for x in outside[:20])
                 )
