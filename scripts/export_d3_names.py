@@ -16,7 +16,6 @@ from pathlib import Path
 
 
 TEXT_ARCHIVE_PATHS = [
-    (0x1EC000, [0]),
     (0x140000, [4, 0]),
 ]
 
@@ -68,50 +67,13 @@ def read_archive(buf, base_off):
 
 
 def get_entry_view(buf, root_off, path_indexes):
-    base = root_off
-
-    for depth, idx in enumerate(path_indexes):
-        arc = read_archive(buf, base)
-        if arc is None:
-            raise RuntimeError(f"Archive not found at 0x{base:X}")
-
-        if idx >= len(arc):
-            raise RuntimeError(f"Index {idx} out of range at archive 0x{base:X}")
-
-        entry = arc[idx]
-        base = entry["abs_off"]
-        size = entry["size"]
-
-        if depth == len(path_indexes) - 1:
-            return buf[base:base + size], base
-
-    raise RuntimeError("Invalid path")
+    from d3_name_archive import get_entry_view as resolve_entry
+    return resolve_entry(buf, root_off, path_indexes)
 
 
 def parse_text_archive(view):
-    if len(view) < 4:
-        return None
-
-    n = le16(view, 0)
-    if not (1 <= n <= 20000):
-        return None
-
-    offsets_table_size = 2 + 2 * n
-    if offsets_table_size > len(view):
-        return None
-
-    offsets = [le16(view, 2 + 2 * i) for i in range(n)]
-
-    prev = 0
-    for w in offsets:
-        start = w * 2
-        if w < prev:
-            return None
-        if start >= len(view):
-            return None
-        prev = w
-
-    return offsets
+    from d3_name_archive import parse_text_archive as parse_offsets
+    return parse_offsets(view)
 
 
 def decode_string(view, start_byte):

@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Experimental D3 particle-image tracer/patcher. Standard library only.
-
+"""D3 particle tracer with selected-layout-only replacement.
 List: python d3_particle_effects.py D3.bin 405
-Patch: python d3_particle_effects.py D3.bin 405 --source 109_0_0.png \
-    --replacement 108_0_0.png --output D3_out.bin
-
-Layout/call tracing and effect-83 image replacement were device-confirmed for
- evolution 405. Nonzero frame support is based on firmware disassembly and
- byte-level tests; it still needs device validation. Palette settings and
- sprite data are preserved. Multi-frame random ranges are refused because
- replacing their shared image would change other frames too.
-
+Patch: python d3_particle_effects.py D3.bin 405 --source 109_0_0.png --replacement 108_1_0.png --output D3_out.bin
+Patching uses the general evolution isolation engine, preserving original
+particle definitions and every other layout, including same-root aliases.
+Variable particle ranges and palette changes remain unsupported.
 """
 import argparse
 import collections
@@ -34,15 +28,8 @@ def words(b, start, end):
     return list(struct.unpack_from('<'+'H'*((end-start)//2), b, start))
 
 def parse_sections(b):
-    if not b.startswith(b'GP-SPIF-HEADER'):
-        raise ValueError('Not a compatible GP-SPIF BIN')
-    # Archive header stores offsets in 16-bit words, relative to BASE.
-    starts = [BASE + u32(b, BASE + i*4)*2 for i in range(SECTION_COUNT)]
-    from d3_shared_scene import archive_end
-    end = archive_end(b, starts)
-    if starts[0] != BASE+84 or starts != sorted(starts) or starts[-1] > end:
-        raise ValueError('Unexpected D3 archive layout')
-    return list(zip(starts, starts[1:]+[end]))
+    from d3_archive_storage import sections
+    return sections(b)
 
 def decode_commands(ws):
     """Decode operand masks; never scan operand words as opcodes."""
@@ -159,20 +146,16 @@ class Archive:
         return rows
 
     def patch(self,evo,source,replacement,effect_id=None):
-        # Share validation and field-writing logic with the GUI backend.
-        from replace_d3_evo_image import (particle_matches, patch_matches,
-                                          allowed_patch_offsets)
+        from d3_evolution_isolation import resolve, patch
+        if effect_id is not None:
+            raise ValueError('Explicit effect-ID filtering is unavailable in isolated mode; select by source image/subimage/bank.')
         si,ss,sb=parse_identifier(source);di,ds,db=parse_identifier(replacement)
-        candidates=self.select(evo,si,ss,sb,effect_id)
-        if not candidates:raise ValueError('No matching traced particle definition; run without --source to inspect')
-        matches=particle_matches(self,evo,candidates,si,ss,sb)
-        output=bytearray(self.data)
-        patch_matches(output,matches,di,ds,db)
-        allowed=allowed_patch_offsets(matches)
-        diff={i for i,(a,b) in enumerate(zip(self.data,output)) if a!=b}
-        if len(output)!=len(self.data) or not diff<=allowed or output[SPRITES:]!=self.data[SPRITES:]:
-            raise ValueError('Byte-level output validation failed')
-        return bytes(output),candidates,sorted(diff)
+        match=resolve(self.data,evo,si,ss,sb)[0]
+        candidates=list(match['isolation_plan']['effects'].values())
+        if not candidates:raise ValueError('No matching particle definition; use replace_d3_evo_image.py for scene images.')
+        output=bytearray(self.data);patch(output,match,di,ds,db)
+        diff=[i for i,(x,y) in enumerate(zip(self.data,output)) if x!=y]
+        return bytes(output),candidates,diff
 
 def parse_identifier(value):
     m=re.fullmatch(r'(\d+)_(\d+)_(\d+)(?:\.png)?',value)
@@ -202,8 +185,8 @@ def main():
     out,rows,diff=a.patch(args.evo_animation_id,args.source,args.replacement,args.effect_id)
     print('Effects:',', '.join(str(x['effect_id']) for x in rows))
     print('Changed byte offsets:',', '.join(f'0x{x:08X}' for x in diff) or '(none)')
-    print('Same-root layout aliases:',rows[0]['same_root_layout_aliases'])
-    print('Size, all unrelated bytes, and sprite package verified unchanged.')
+    print('Other layouts retaining the original root:',[e for e in rows[0]['same_root_layout_aliases'] if e != args.evo_animation_id])
+    print('Size, unrelated resources, original animation/effect contents and other layouts verified unchanged.')
     if args.dry_run:print('Dry run: no output written.');return
     args.output.parent.mkdir(parents=True,exist_ok=True)
     fd,tmp=tempfile.mkstemp(prefix='.particle_',dir=args.output.parent)

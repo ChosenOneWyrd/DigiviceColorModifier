@@ -1,76 +1,18 @@
 #!/usr/bin/env python3
-"""
-replace_d3_evo_image.py
+"""Replace supported image references only in the selected D3 evolution layout.
 
-Replace exactly ONE image/subimage with another image/subimage inside the
-D-3 25th Color scene group associated with an evolution animation ID.
+Usage: python replace_d3_evo_image.py D3.bin 400 402 403 D3_out.bin
+Options: --source-subimage N --replacement-subimage N --source-bank N
+         --replacement-bank N --dry-run
 
-Example: Holydramon evolution 410, replace Angewomon image 338 with Wormmon 487:
-
-    python replace_d3_evo_image.py \
-        D3.bin 410 338 487 D3_out.bin
-
-In-place:
-
-    python replace_d3_evo_image.py \
-        D3.bin 410 338 487 D3.bin
-
-Preview only:
-
-    python replace_d3_evo_image.py \
-        D3.bin 410 338 487 D3_out.bin --dry-run
-
-Important behavior
-------------------
-- Replaces ONLY the exact source image you specify.
-- It does NOT automatically replace neighboring images such as 339/340/341.
-- If the exact same source image is referenced multiple times inside the
-  selected evolution scene, every exact occurrence is changed.  This is
-  necessary for cases such as animation 410, where group 79 contains two
-  meaningful image-338 references.
-- It changes animation image references or isolated particle image fields.
-- Particle support requires d3_particle_effects.py alongside this file.
-- Use --source-bank for a particle variant; palette-bank changes are refused.
-- It NEVER edits the sprite package itself, so the original image remains
-  unchanged for normal appearances elsewhere.
-- Animation record sizes and offset tables are never changed.
-
-Currently established late-evolution scene mapping
---------------------------------------------------
-The D3 late-evolution scene-family sequence is:
-
-    evo_animation_id 409 -> group 77
-    evo_animation_id 410 -> group 79
-    evo_animation_id 411 -> group 81
-    evo_animation_id 412 -> group 83
-    evo_animation_id 413 -> group 85
-
-For other animation IDs, the program derives structurally paired scene groups
-from the selected evolution controller and only auto-selects when the exact
-source image/subimage identifies one unambiguous paired scene.  --group remains
-available as an explicit override for separately proven cases.
-
-Subimages
----------
-Default source/replacement subimage is 0.
-
-For an explicit subimage:
-
-    --source-subimage N
-    --replacement-subimage N
-
-If a source reference uses a compact/default-subimage opcode, replacing it with
-a nonzero subimage would require changing the command layout, so the program
-refuses that edit.
-
-D3 layout used
---------------
-Animation archive:     0x001B3000
-Sprite package:        0x001EF000
-Animation offsets:     archive section 13
-Animation payload:     archive section 14
-Animation groups:      archive section 18
-Groups:                67 (animation_id, flag) pairs each
+Copies the affected animation paths and particle definitions, then redirects
+only the selected layout. Original records and all other layouts are verified
+unchanged. Archive offsets are rebuilt within checked erased padding. Sprite,
+palette and audio payloads are untouched. Group overrides cannot expand scope.
+Unsupported encodings, palette changes, random ranges and insufficient padding
+are refused. Compact image commands retain their subimage-0 restriction.
+Requires d3_evolution_isolation.py, d3_archive_storage.py, d3_particle_effects.py
+and d3_shared_scene.py. Obsolete tracked private copies are reclaimed locally.
 """
 
 import argparse
@@ -266,71 +208,8 @@ def parse_sprite_package(data):
 # ----------------------------------------------------------------------
 
 def parse_sections(data):
-    if (
-        ARCHIVE_BASE
-        + ARCHIVE_SIZE
-        > len(data)
-    ):
-        raise RuntimeError(
-            "D3 animation archive lies outside the BIN"
-        )
-
-    word_offsets = [
-        le32(
-            data,
-            ARCHIVE_BASE + i * 4,
-        )
-        for i in range(SECTION_COUNT)
-    ]
-
-    if (
-        word_offsets[0]
-        != SECTION_COUNT * 2
-    ):
-        raise RuntimeError(
-            "Unexpected D3 animation archive header"
-        )
-
-    if any(
-        word_offsets[i]
-        > word_offsets[i + 1]
-        for i in range(
-            len(word_offsets) - 1
-        )
-    ):
-        raise RuntimeError(
-            "Animation archive section offsets "
-            "are not monotonic"
-        )
-
-    from d3_shared_scene import archive_end
-    dynamic_end = archive_end(data, [ARCHIVE_BASE + x*2 for x in word_offsets])
-    sections = []
-
-    for i, word_off in enumerate(
-        word_offsets
-    ):
-        start = (
-            ARCHIVE_BASE
-            + word_off * 2
-        )
-
-        if i + 1 < len(word_offsets):
-            end = (
-                ARCHIVE_BASE
-                + word_offsets[i + 1] * 2
-            )
-        else:
-            end = dynamic_end
-
-        sections.append({
-            "index": i,
-            "start": start,
-            "end": end,
-            "size": end - start,
-        })
-
-    return sections
+    from d3_archive_storage import sections
+    return [{'index':i,'start':s,'end':e,'size':e-s} for i,(s,e) in enumerate(sections(data))]
 
 
 def parse_animation_records(
@@ -964,37 +843,14 @@ def resolve_scene_matches(
 def resolve_evolution_matches(data, evo_animation_id, groups, records,
                               membership, num_images, subimage_count,
                               source_image, source_subimage, source_bank=0,
-                              forced_group=None, particle_archive=None):
-    """Resolve particle image definitions before the established scene path.
-
-    Palette-bank selection applies to recognized particle definitions only.
-    Existing ordinary scene replacement behavior remains available.
-    """
-    from d3_particle_effects import Archive
-    archive = particle_archive if particle_archive is not None else Archive(data)
-    try:
-        selected = archive.select(evo_animation_id, source_image, source_subimage,
-                                  source_bank) if evo_animation_id in archive.roots else []
-    except ValueError as exc:
-        raise RuntimeError(str(exc)) from exc
-    if selected:
-        matches = particle_matches(archive, evo_animation_id, selected,
-                                   source_image, source_subimage, source_bank)
-        reason = (f"particle effect(s) {', '.join(str(r['effect_id']) for r in selected)}; "
-                  f'layout {evo_animation_id} -> root {archive.roots[evo_animation_id]}; '
-                  f'subimage {source_subimage}; bank {source_bank}; palette settings preserved')
-        return matches, -1, reason
-    if forced_group is None:
-        from d3_shared_scene import resolve
-        isolated = resolve(archive, evo_animation_id, source_image, source_subimage,
-                           source_bank, membership)
-        if isolated:
-            return isolated, -1, (f"isolated scene clone of record {isolated[0]['animation_id']}; "
-                                  f"layout {evo_animation_id}; bank {source_bank}; "
-                                  "shared original preserved")
-    return resolve_scene_matches(evo_animation_id, groups, records, membership,
-                                 num_images, subimage_count, source_image,
-                                 source_subimage, forced_group=forced_group)
+                              forced_group=None, particle_archive=None, allow_expand=True):
+    """Resolve only through the selected layout; overrides never widen scope."""
+    from d3_evolution_isolation import resolve
+    matches=resolve(data,evo_animation_id,source_image,source_subimage,source_bank,allow_expand)
+    p=matches[0]['isolation_plan']
+    storage = f"local repacking; {p['reclaimed_records']} obsolete animation copies reclaimed"
+    return matches,-1,(f"private evolution {evo_animation_id}: {len(p['clones'])} animation copies, "
+                       f"{len(p['effects'])} particle copies; {p['growth']} bytes; {storage}; other layouts preserved")
 
 
 def particle_matches(archive, evo, rows, image, subimage, bank):
@@ -1015,7 +871,12 @@ def particle_matches(archive, evo, rows, image, subimage, bank):
 def validate_replacement(matches, replacement_subimage, replacement_bank=None):
     for match in matches:
         ref = match['ref']
-        if ref['kind'] == 'isolated_scene':
+        if ref['kind'] == 'isolated_evolution':
+            from d3_evolution_isolation import validate
+            validate(match,replacement_subimage,replacement_bank)
+        elif ref['kind'] == 'isolated_scene':
+            if match['clone_plan'].get('mode') == 'frame_sequence' and replacement_subimage != 0:
+                raise RuntimeError('This frame-sequence command supports replacement subimage 0 only.')
             if not 0 <= replacement_subimage <= 0xffff:
                 raise RuntimeError('Subimage must fit uint16.')
             if replacement_bank is not None and replacement_bank != ref['source_bank']:
@@ -1031,11 +892,28 @@ def validate_replacement(matches, replacement_subimage, replacement_bank=None):
             raise RuntimeError('The compact source command cannot select a nonzero subimage.')
 
 
+def verify_asset_preservation(original,output,matches):
+    from d3_archive_storage import verify_unchanged_outside
+    spans=[]
+    for match in matches:
+        if match['ref']['kind']=='isolated_evolution':
+            spans.extend(match['isolation_plan']['write_spans'])
+        else:
+            if original[SPRITE_PACKAGE_BASE:]!=output[SPRITE_PACKAGE_BASE:]:
+                raise RuntimeError('Sprite/audio package bytes changed')
+            return
+    verify_unchanged_outside(original,output,spans)
+
+
 def allowed_patch_offsets(matches):
     """Exact image/subimage fields authorized by the resolved edit."""
     allowed = set()
     for match in matches:
         ref, rec = match['ref'], match['record']
+        if ref['kind'] == 'isolated_evolution':
+            for start,end in match['isolation_plan']['write_spans']:
+                allowed.update(range(start,end))
+            continue
         if ref['kind'] == 'isolated_scene':
             from d3_shared_scene import allowed_offsets
             allowed.update(allowed_offsets(match))
@@ -1063,6 +941,10 @@ def patch_matches(
     replacement_bank=None,
 ):
     validate_replacement(matches, replacement_subimage, replacement_bank)
+    if any(m['ref']['kind']=='isolated_evolution' for m in matches):
+        if len(matches)!=1:raise RuntimeError('Save one evolution image replacement at a time.')
+        from d3_evolution_isolation import patch
+        return patch(data,matches[0],replacement_image,replacement_subimage,replacement_bank)
     if any(m['ref']['kind'] == 'isolated_scene' for m in matches):
         if len(matches) != 1:
             raise RuntimeError('An isolated scene clone must be saved as a separate edit.')
@@ -1310,6 +1192,7 @@ def main():
     ap.add_argument("--source-bank", type=int, choices=range(16), default=0)
     ap.add_argument("--replacement-bank", type=int, choices=range(16), default=None,
                     help="Particle bank must match source; defaults to source bank.")
+    ap.add_argument("--allow-expanded-archive", action="store_true", default=True, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     src = Path(args.input_bin)
@@ -1410,6 +1293,7 @@ def main():
             args.source_subimage,
             source_bank=args.source_bank,
             forced_group=args.group,
+            allow_expand=args.allow_expanded_archive,
         )
     )
 
@@ -1475,7 +1359,7 @@ def main():
         {
             m["animation_id"]
             for m in matches
-            if m["ref"]["kind"] not in ("particle", "isolated_scene")
+            if m["ref"]["kind"] not in ("particle", "isolated_scene", "isolated_evolution")
         }
     )
 
@@ -1543,21 +1427,7 @@ def main():
         replacement_bank=args.replacement_bank,
     )
 
-    # Hard safety property:
-    # sprite package must remain byte-for-byte identical.
-    if (
-        patched[
-            SPRITE_PACKAGE_BASE:
-        ]
-        != original[
-            SPRITE_PACKAGE_BASE:
-        ]
-    ):
-        raise RuntimeError(
-            "Safety check failed: sprite-package "
-            "bytes would change. Output was NOT "
-            "written."
-        )
+    verify_asset_preservation(original,patched,matches)
 
     # Only fields resolved for this edit may change, including particle fields.
     allowed_offsets = allowed_patch_offsets(matches)

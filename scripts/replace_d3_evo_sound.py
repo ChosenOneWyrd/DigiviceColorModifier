@@ -45,10 +45,8 @@ class Archive:
         self.data=data
         if not data.startswith(b'GP-SPIF-HEADER') or len(data)<ARCHIVE_LIMIT:
             raise ValueError('Not a compatible D3 BIN')
-        starts=[BASE+u32(data,BASE+i*4)*2 for i in range(21)]
-        if starts[0]!=BASE+84 or starts!=sorted(starts) or starts[-1]+2>ARCHIVE_LIMIT:
-            raise ValueError('Unsupported D3 archive layout')
-        self.sections=list(zip(starts,starts[1:]+[starts[-1]+2]))
+        from d3_particle_effects import parse_sections
+        self.sections=parse_sections(data)
         sec=self.sections;offsets=words(data,*sec[13])
         if len(offsets)<2 or offsets!=sorted(offsets) or offsets[-1]*4!=sec[14][1]-sec[14][0]:
             raise ValueError('Invalid animation offset table')

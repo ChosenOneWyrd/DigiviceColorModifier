@@ -1,4 +1,4 @@
-"""D3 evolution sound references: queue several isolated edits, then save."""
+"""D3 evolution sound references: save one selected replacement immediately."""
 import csv
 from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
@@ -17,7 +17,7 @@ class Job(QtCore.QThread):
 class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
     def __init__(self,parent=None):
         super().__init__(parent)
-        self.path=None;self.snapshot=None;self.edits=[];self.rows=[];self.job=None
+        self.path=None;self.snapshot=None;self.rows=[];self.job=None
         self.names={};self.evo_names={}
         main=QtWidgets.QVBoxLayout(self)
         self.controls=QtWidgets.QWidget();main.addWidget(self.controls)
@@ -26,7 +26,6 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
         line.addWidget(QtWidgets.QLabel('D-3 25th Color — selected BIN (input and output):'))
         self.path_edit=QtWidgets.QLineEdit();self.path_edit.setReadOnly(True);line.addWidget(self.path_edit,1)
         self.browse=QtWidgets.QPushButton('Select .bin file…');line.addWidget(self.browse)
-        self.refresh=QtWidgets.QPushButton('Refresh');self.refresh.setToolTip('Reload the BIN and clear queued edits.');line.addWidget(self.refresh)
         row=QtWidgets.QHBoxLayout();layout.addLayout(row)
         row.addWidget(QtWidgets.QLabel('Evolution:'));self.evo=QtWidgets.QComboBox();row.addWidget(self.evo,1)
         self.table=QtWidgets.QTableWidget(0,4);self.table.setHorizontalHeaderLabels(['Occurrence','Sound chunk','Sound name','Isolation'])
@@ -42,21 +41,20 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
         self.destination=QtWidgets.QComboBox();self.destination.setEditable(True)
         self.destination.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
         row.addWidget(self.destination,1)
-        self.add=QtWidgets.QPushButton('Queue Replacement');row.addWidget(self.add)
-        layout.addWidget(QtWidgets.QLabel('Queued edits — changes across several evolutions are saved together:'))
-        self.queue=QtWidgets.QTableWidget(0,4);self.queue.setHorizontalHeaderLabels(['Evolution','Occurrence','Source','Replacement'])
-        self.queue.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.queue.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        self.queue.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.queue.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        self.queue.horizontalHeader().setSectionResizeMode(1,QtWidgets.QHeaderView.ResizeToContents)
-        self.queue.verticalHeader().hide()
-        layout.addWidget(self.queue,1)
-        row=QtWidgets.QHBoxLayout();layout.addLayout(row)
-        self.remove=QtWidgets.QPushButton('Remove Selected');row.addWidget(self.remove)
-        self.clear=QtWidgets.QPushButton('Clear Queue');row.addWidget(self.clear);row.addStretch()
-        self.save=QtWidgets.QPushButton('Save Queued Edits to BIN');row.addWidget(self.save)
-        note=QtWidgets.QLabel('A backup is created before saving. Audio data is preserved. Same-root aliases share edits; shared records across different roots are blocked.')
+        actions=QtWidgets.QHBoxLayout();layout.addLayout(actions);actions.addStretch()
+        self.save=QtWidgets.QPushButton('Save');actions.addWidget(self.save)
+        self.refresh=QtWidgets.QPushButton('Refresh');actions.addWidget(self.refresh)
+        self.refresh.setToolTip('Reload the BIN and clear the current replacement selection.')
+        green_style = """
+            QPushButton { background-color: #238636; color: white; font-weight: 600;
+                          padding: 8px 20px; border: 1px solid #2ea043; border-radius: 4px; }
+            QPushButton:hover { background-color: #2ea043; }
+            QPushButton:pressed { background-color: #196c2e; }
+            QPushButton:disabled { background-color: #315b3b; color: #adc3b2; border-color: #315b3b; }
+        """
+        self.save.setStyleSheet(green_style);self.refresh.setStyleSheet(green_style)
+        self.save.setMinimumWidth(140);self.refresh.setMinimumWidth(140)
+        note=QtWidgets.QLabel('Audio data is preserved. Same-root aliases share edits; shared records across different roots are blocked.')
         note.setWordWrap(True);layout.addWidget(note)
         self.status=QtWidgets.QLabel('Select a D-3 BIN to begin.');self.status.setWordWrap(True);main.addWidget(self.status)
         try:
@@ -66,7 +64,8 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
             self.evo.addItem('Select evolution…',None)
             for i,name in sorted(self.evo_names.items(),key=lambda p:p[1]):self.evo.addItem(f'{name} ({i})',i)
             self.destination.addItem('Select replacement sound…',None)
-            for i,name in sorted(self.names.items()):self.destination.addItem(f'chunk_{i:04}.a18.wav — {name}',i)
+            for i,name in sorted(self.names.items(),key=lambda p:(p[1].casefold(),p[0])):
+                self.destination.addItem(name,i)
             self.destination.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
             self.destination.completer().setCaseSensitivity(QtCore.Qt.CaseInsensitive)
             self.destination.completer().setFilterMode(QtCore.Qt.MatchContains)
@@ -76,8 +75,7 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
         self.evo.currentIndexChanged.connect(self.show_sounds)
         self.table.itemSelectionChanged.connect(self.update_buttons)
         self.destination.currentTextChanged.connect(self.update_buttons)
-        self.add.clicked.connect(self.queue_edit);self.remove.clicked.connect(self.remove_edit)
-        self.clear.clicked.connect(self.clear_queue);self.save.clicked.connect(self.save_edits)
+        self.save.clicked.connect(self.save_edits)
         self.update_buttons()
         if parent is not None:parent.window().installEventFilter(self)
 
@@ -112,7 +110,7 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
 
     def load_path(self,path):
         self.path=str(Path(path).resolve());self.path_edit.setText(self.path)
-        self.snapshot=None;self.clear_queue();self.show_sounds()
+        self.snapshot=None;self.destination.setCurrentIndex(0);self.show_sounds()
         self.run_job(lambda:batch.load(self.path,self.names),self.loaded,'Reading animation and sound references…')
 
     def reload(self):
@@ -148,47 +146,32 @@ class ReplaceEvolutionSoundsTab(QtWidgets.QWidget):
         return backend.sound_id(text,self.names)
 
     def update_buttons(self,*args):
-        valid=self.snapshot is not None and 0<=self.table.currentRow()<len(self.rows)
+        valid=self.snapshot is not None and bool(self.table.selectionModel().selectedRows()) and 0<=self.table.currentRow()<len(self.rows)
         if valid:
             r=self.rows[self.table.currentRow()];evo=self.evo.currentData()
             try:dest=self.destination_id();valid=dest!=r['chunk'] and r['root_owners']==[self.snapshot['archive'].roots[evo]]
             except ValueError:valid=False
-        self.add.setEnabled(valid)
-        self.save.setEnabled(self.snapshot is not None and bool(self.edits))
+        self.save.setEnabled(valid)
         self.refresh.setEnabled(self.path is not None)
-        self.remove.setEnabled(bool(self.edits));self.clear.setEnabled(bool(self.edits))
-
-    def queue_edit(self):
-        try:
-            r=self.rows[self.table.currentRow()];evo=self.evo.currentData();dest=self.destination_id()
-            if dest==r['chunk']:raise ValueError('Choose a different replacement sound.')
-            if r['root_owners']!=[self.snapshot['archive'].roots[evo]]:raise ValueError('This sound command is shared by different roots.')
-            if any(e['offset']==r['offset'] for e in self.edits):raise ValueError('This sound occurrence is already queued. Remove it first to change the replacement.')
-            self.edits.append({'evo':evo,'occurrence':r['occurrence'],'source':r['chunk'],'destination':dest,'offset':r['offset']})
-            self.render_queue();self.destination.setCurrentIndex(0);self.table.clearSelection()
-            self.status.setText(f'{len(self.edits)} replacement(s) queued. Choose another evolution or save the batch.')
-        except (ValueError,IndexError) as exc:self.error(str(exc))
-
-    def render_queue(self):
-        self.queue.setRowCount(len(self.edits))
-        for i,e in enumerate(self.edits):
-            vals=[f"{self.evo_names.get(e['evo'],e['evo'])} ({e['evo']})",str(e['occurrence']),f"{e['source']:04} — {self.names[e['source']]}",f"{e['destination']:04} — {self.names[e['destination']]}"]
-            for j,v in enumerate(vals):
-                item=QtWidgets.QTableWidgetItem(v);item.setToolTip(v);self.queue.setItem(i,j,item)
-        self.update_buttons()
-
-    def remove_edit(self):
-        i=self.queue.currentRow()
-        if 0<=i<len(self.edits):self.edits.pop(i);self.render_queue()
-
-    def clear_queue(self):self.edits=[];self.render_queue()
 
     def save_edits(self):
-        if not self.snapshot or not self.edits:return
-        path=self.path;snapshot=self.snapshot;edits=[dict(e) for e in self.edits]
-        self.run_job(lambda:batch.save(path,snapshot,edits,self.names),self.saved,'Validating and saving queued sound replacements…')
+        if self.job is not None or not self.snapshot:return
+        try:
+            index=self.table.currentRow()
+            if not self.table.selectionModel().selectedRows() or not 0<=index<len(self.rows):
+                raise ValueError('Select a source sound occurrence.')
+            r=self.rows[index];evo=self.evo.currentData();dest=self.destination_id()
+            if dest==r['chunk']:raise ValueError('Choose a different replacement sound.')
+            if r['root_owners']!=[self.snapshot['archive'].roots[evo]]:
+                raise ValueError('This sound command is shared by different roots.')
+            edit={'evo':evo,'occurrence':r['occurrence'],'source':r['chunk'],
+                  'destination':dest,'offset':r['offset']}
+            path=self.path;snapshot=self.snapshot
+            self.run_job(lambda:batch.save(path,snapshot,[edit],self.names),self.saved,
+                         'Validating and saving the selected sound replacement…')
+        except (ValueError,IndexError) as exc:self.error(str(exc))
 
     def saved(self,result):
-        count=len(self.edits);self.snapshot=result;self.clear_queue();self.destination.setCurrentIndex(0)
-        self.show_sounds();self.table.clearSelection()
-        self.status.setText(f"Saved {count} replacement(s), changing {len(result['changed'])} byte(s). Backup: {result['backup']}")
+        self.snapshot=result;self.destination.setCurrentIndex(0)
+        self.show_sounds();self.table.clearSelection();self.update_buttons()
+        self.status.setText(f"Saved replacement, changing {len(result['changed'])} byte(s).")

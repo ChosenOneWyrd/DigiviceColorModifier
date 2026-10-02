@@ -4,7 +4,6 @@ import hashlib
 import os
 import stat
 import tempfile
-import uuid
 import replace_d3_evo_sound as backend
 
 def digest(data):return hashlib.sha256(data).hexdigest()
@@ -18,16 +17,16 @@ def load(path,names):
     return {'data':data,'archive':archive,'sha256':digest(data)}
 
 def apply(data,edits,names):
-    if not edits:raise ValueError('Queue at least one replacement.')
+    if not edits:raise ValueError('Select a replacement.')
     original=backend.Archive(data);offsets=set()
     # Resolve all jobs against one snapshot before changing anything.
     for e in edits:
         if e['source'] not in names or e['destination'] not in names:
-            raise ValueError('A queued sound is absent from the sound map.')
+            raise ValueError('A selected sound is absent from the sound map.')
         rows=[r for r in original.sounds(e['evo']) if r['occurrence']==e['occurrence']]
         if len(rows)!=1 or rows[0]['chunk']!=e['source']:
-            raise ValueError('A queued source no longer matches this BIN. Refresh and queue it again.')
-        if rows[0]['offset'] in offsets:raise ValueError('Two queued edits target the same sound command, possibly through layout aliases.')
+            raise ValueError('The selected source no longer matches this BIN. Refresh and select it again.')
+        if rows[0]['offset'] in offsets:raise ValueError('Two edits target the same sound command, possibly through layout aliases.')
         offsets.add(rows[0]['offset'])
     out=bytes(data)
     for e in edits:
@@ -38,22 +37,19 @@ def apply(data,edits,names):
     return out,changed
 
 def save(path,snapshot,edits,names):
-    """Save in place with an original-byte backup and stale-file rejection."""
+    """Save atomically in place with stale-file rejection; no backup file."""
     path=Path(path).resolve()
     current=path.read_bytes()
-    if digest(current)!=snapshot['sha256']:raise ValueError('The BIN changed in another tab/program. Refresh this tab and queue the edits again.')
+    if digest(current)!=snapshot['sha256']:raise ValueError('The BIN changed in another tab/program. Refresh this tab and select the replacement again.')
     output,changed=apply(current,edits,names)
     fd,tmp=tempfile.mkstemp(prefix='.evo_sound_',dir=path.parent)
-    backup=path.with_name(path.name+'.before_evo_sounds_'+uuid.uuid4().hex[:12]+'.bak')
     try:
         with os.fdopen(fd,'wb') as f:
             f.write(output);f.flush();os.fsync(f.fileno())
         os.chmod(tmp,stat.S_IMODE(path.stat().st_mode))
         if path.read_bytes()!=current:raise ValueError('The BIN changed while preparing the save. Refresh and try again.')
-        with backup.open('xb') as f:
-            f.write(current);f.flush();os.fsync(f.fileno())
         os.replace(tmp,path)
     finally:
         if os.path.exists(tmp):os.unlink(tmp)
     return {'data':output,'archive':backend.Archive(output),'sha256':digest(output),
-            'backup':str(backup),'changed':changed}
+            'changed':changed}

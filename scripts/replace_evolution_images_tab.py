@@ -151,6 +151,8 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
         self.save_edits_btn.setStyleSheet(
             "background-color:#008000;color:white;font-weight:600;font-size:14pt;"
         )
+        self.refresh_btn.setMinimumWidth(140)
+        self.save_edits_btn.setMinimumWidth(140)
         self.save_edits_btn.setEnabled(False)
 
         # io_layout.addWidget(QtWidgets.QLabel("Export CSV path:"), 0, 0)
@@ -192,15 +194,11 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
         edit_layout.addWidget(self.destination_edit, 2, 3)
 
         # D-3 option.
-        self.d3_group_label = QtWidgets.QLabel("D-3 scene group override:")
+        self.d3_group_label = QtWidgets.QLabel("D-3 replacement scope:")
         self.d3_group_edit = QtWidgets.QLineEdit()
-        self.d3_group_edit.setPlaceholderText("blank = automatic mapping when known")
-        self.d3_group_edit.setToolTip(
-            "Normally leave this blank. The D-3 backend uses established "
-            "special mappings where known, then automatically searches scene "
-            "groups structurally paired with the selected evolution controller. "
-            "Use an override only for a separately proven scene group."
-        )
+        self.d3_group_edit.setPlaceholderText("Selected evolution only — automatic isolation")
+        self.d3_group_edit.setEnabled(False)
+        self.d3_group_edit.setToolTip("Shared records are copied automatically. Group overrides cannot expand the edit scope.")
         edit_layout.addWidget(self.d3_group_label, 3, 0)
         edit_layout.addWidget(self.d3_group_edit, 3, 1, 1, 3)
 
@@ -1157,8 +1155,8 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
             f"Animation: {self.animation_name(animation_id)} ({animation_id})\n"
             f"Source: {source_text}\n"
             f"Destination: {destination_text}\n\n"
-            "Image references are updated; shared scene leaves may be cloned and archive tables relocated. The sprite "
-            "package itself is not modified.\n\nContinue?",
+            "Only this evolution's image references will change. Existing sprite images "
+            "and other evolutions are preserved.\n\nContinue?",
             QtWidgets.QMessageBox.StandardButton.Yes
             | QtWidgets.QMessageBox.StandardButton.No,
         )
@@ -1295,12 +1293,11 @@ class ReplaceEvolutionImagesTab(QtWidgets.QWidget):
                     "field was changed."
                 )
 
-            # Hard safety checks.
-            if data[package_base:] != original[package_base:]:
-                raise RuntimeError(
-                    "Safety check failed: sprite-package bytes would change. "
-                    "No BIN was written."
-                )
+            # Keep every existing asset unchanged, allowing only verified archive spans.
+            if self.is_d3():
+                d3_backend.verify_asset_preservation(original,data,matches)
+            elif data[package_base:] != original[package_base:]:
+                raise RuntimeError("Safety check failed: sprite-package bytes would change.")
 
             diffs = [
                 i
