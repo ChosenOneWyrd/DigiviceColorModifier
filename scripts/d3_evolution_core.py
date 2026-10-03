@@ -856,7 +856,9 @@ def read_v15_lines(data: bytes | bytearray) -> dict[int, list[int]]:
         lines[line_id] = values
         cursor = end
     storage_end = DISPATCH_FILE_OFFSET + (V15_CANDIDATES_INDEX + total) * 2
-    if any(data[storage_end:PROVEN_SAFE_END]):
+    from d3_transfer_evolution_lines import is_probe_c
+    tail_end = 0xACED8 if is_probe_c(data) else PROVEN_SAFE_END
+    if storage_end > tail_end or any(data[storage_end:tail_end]):
         raise RuntimeError("v15 unused selector-storage tail is not zero")
     return lines
 
@@ -1443,7 +1445,7 @@ def validate_synchronized_state(
     return report
 
 
-def synchronize_existing_bin(
+def _synchronize_existing_bin_without_transfers(
     data: bytearray,
     requested_lines: dict[int, list[int]] | None = None,
 ) -> tuple[dict[int, list[int]], str, list[str], list[tuple[str, int, int, int]], SafetyReport]:
@@ -1530,4 +1532,18 @@ def changed_ranges(before: bytes, after: bytes) -> list[tuple[int, int]]:
             start = offset
         previous = offset
     result.append((start, previous + 1))
+    return result
+
+
+def synchronize_existing_bin(data, requested_lines=None):
+    """Synchronize on a copy and rebuild authenticated transfer pages last."""
+    from d3_transfer_evolution_lines import read_state, is_probe_c, strip_probe_c, install_into
+    mappings = read_state(data)
+    work = bytearray(data)
+    if is_probe_c(work):
+        strip_probe_c(work)
+    result = _synchronize_existing_bin_without_transfers(work, requested_lines)
+    if mappings:
+        install_into(work, mappings, result[0])
+    data[:] = work
     return result
