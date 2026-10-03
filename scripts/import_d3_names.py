@@ -16,7 +16,6 @@ from pathlib import Path
 # CONFIG
 # --------------------------------------------------
 TEXT_ARCHIVE_PATHS = [
-    (0x1EC000, [0]),
     (0x140000, [4, 0]),
 ]
 
@@ -49,25 +48,15 @@ def read_archive(buf, base_off):
 
     return entries
 
-def get_entry_view(buf, root, path):
-    base = root
+def get_entry_view(buf, root_off, path_indexes):
+    from d3_name_archive import get_entry_view as resolve_entry
+    return resolve_entry(buf, root_off, path_indexes)
 
-    for idx in path:
-        arc = read_archive(buf, base)
-        entry = arc[idx]
 
-        base = base + entry["offset"]
-        size = entry["dlen"] if entry["dlen"] > 0 else entry["clen"]
-
-    return buf[base:base+size], base
-
-# --------------------------------------------------
-# Text archive parsing
-# --------------------------------------------------
 def parse_text_archive(view):
-    n = le16(view, 0)
-    offsets = [le16(view, 2 + 2*i) for i in range(n)]
-    return offsets
+    from d3_name_archive import parse_text_archive as parse_offsets
+    return parse_offsets(view)
+
 
 def string_capacity(view, offsets, si):
     start = offsets[si] * 2

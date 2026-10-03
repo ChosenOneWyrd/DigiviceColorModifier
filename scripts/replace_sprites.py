@@ -277,7 +277,7 @@ def main():
     ap.add_argument("--palette-step", choices=["colors", "4"], default="colors", help="Palette bank stepping")
     ap.add_argument("--use-attr-palette", action="store_true", help="Ignore filename bank and use each sprite's Attribute0 bank")
     ap.add_argument("--recursive", action="store_true", help="Recurse into subfolders")
-    ap.add_argument("--package-offset", default=None, help="Override package base, e.g. 0x1EF000")
+    ap.add_argument("--package-offset", default=None, help="Override package base, e.g. D-3=0x1EF000, Digivice=0x196000, D-Ark=0x280000")
     ap.add_argument("--no-numpy", action="store_true", help="Disable NumPy path and use original Python quantizer")
     ap.add_argument("--dry-run", action="store_true", help="List planned changes only")
     args = ap.parse_args()
