@@ -13,6 +13,8 @@ from d3_paging_legacy import CODE as LEGACY_CODE, HOOKS as LEGACY_HOOKS
 START, CODE_START, END = 0xAD060, 0xAD0A0, 0xAE000
 MAGIC = b'D3PAGES1'
 STOCK = {0x22C84:(0xF045,0x71FC),0x22E88:(0x98E4,0xD818),0x22EEE:(0x96E4,0x0908,7)}
+SINGLE_STOCK={0x22A3C:(0x4841,0xAE36),0x22ACC:(0x4841,0xAE34)}
+STOCK.update(SINGLE_STOCK)
 CALLBACK_HASH = '929a04b562f887d537fc177242720a068a2a6c526f5f95927791825cd9b59ad2'
 
 
@@ -36,9 +38,13 @@ def strip_probe_c(data):
 
 
 def expected_hooks(labels):
-    return {0x22C84:(0xF045,labels['paging']&65535),
+    hooks = {0x22C84:(0xF045,labels['paging']&65535),
             0x22E88:(0xF045,labels['old_flags']&65535),
             0x22EEE:(0xFE85,labels['old_label']&65535,0x0040)}
+    hooks.update(SINGLE_STOCK)
+    if 'single_right' in labels:
+        hooks.update({0x22A3C:(0xFE85,labels['single_right']&65535),0x22ACC:(0xFE85,labels['single_left']&65535)})
+    return hooks
 
 
 def validate_mappings(mappings):
@@ -48,6 +54,8 @@ def validate_mappings(mappings):
 
 def read_state(data):
     """Read and authenticate owned code without deriving lists from edited records."""
+    import d3_additional_partners as additional
+    if additional.detected(data):return dict(additional.read_state(data)['mappings'])
     if is_probe_c(data):return {1:3}
     if data[START:START+8]!=MAGIC:
         if not hooks_match(data,STOCK):
@@ -113,6 +121,14 @@ def derive_pages(data,mappings,lines=None):
 
 def install_into(data,mappings,lines=None):
     """Replace only authenticated transfer-owned code; caller commits atomically."""
+    import d3_additional_partners as additional
+    if additional.detected(data):
+        state=additional.read_state(data)
+        if lines is None:
+            import d3_evolution_core as core
+            lines=core.read_source_lines(data)[0]
+        additional.install_into(data,state['entries'],mappings,lines,additional.merge_slots(lines,state['entries'],state.get('slots')) if state.get('slots') else None)
+        return additional.read_state(data)['pages']
     validate_mappings(mappings)
     legacy=is_probe_c(data)
     previous=read_state(data)
@@ -146,6 +162,10 @@ def update_bytes(original,source,donor):
     else:mappings[source]=donor
     validate_mappings(mappings)
     if type(source) is not int or source not in range(7):raise ValueError('Invalid source line.')
+    import d3_additional_partners as additional
+    if additional.detected(original):
+        state=additional.read_state(original)
+        return additional.update_bytes(original,state['entries'],mappings)
     work=bytearray(original)
     if is_probe_c(work):strip_probe_c(work)
     check_layout(work)

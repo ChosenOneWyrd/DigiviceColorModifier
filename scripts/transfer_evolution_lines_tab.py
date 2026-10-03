@@ -8,6 +8,7 @@ from pathlib import Path
 from PyQt5 import QtWidgets
 import d3_evolution_core as core
 import d3_transfer_evolution_lines as transfer
+import d3_additional_partners as additional
 
 ROOT=Path(__file__).resolve().parent
 GREEN='QPushButton {background:#278447;color:white;padding:8px 24px;min-width:130px;border-radius:4px;} QPushButton:hover {background:#319c57;} QPushButton:disabled {background:#505950;color:#a0a0a0;}'
@@ -33,15 +34,15 @@ class TransferEvolutionLinesTab(QtWidgets.QWidget):
         row=QtWidgets.QHBoxLayout();self.path_edit=QtWidgets.QLineEdit();self.path_edit.setReadOnly(True)
         browse=QtWidgets.QPushButton('Select D-3 .bin file…');browse.clicked.connect(self.browse)
         row.addWidget(QtWidgets.QLabel('D-3 BIN:'));row.addWidget(self.path_edit,1);row.addWidget(browse);layout.addLayout(row)
-        text=QtWidgets.QLabel('Add a second page to a source line’s map-battle selector. Move past either end to switch pages. Digivolution Viewer membership stays the same.');text.setWordWrap(True);layout.addWidget(text)
+        text=QtWidgets.QLabel('Add overflow pages to a source line’s map-battle selector. Move past either end to switch pages. Digivolution Viewer membership stays the same.');text.setWordWrap(True);layout.addWidget(text)
         form=QtWidgets.QFormLayout();self.source=QtWidgets.QComboBox();self.donor=QtWidgets.QComboBox()
         form.addRow('Source line (receives extra choices):',self.source)
         form.addRow('Donor line (provides extra choices):',self.donor);layout.addLayout(form)
         note=QtWidgets.QLabel('The donor’s stage-0 entries and first non-stage-0 Digimon are excluded. Forms already on the source page are omitted. Existing unlock requirements still apply.');note.setWordWrap(True);layout.addWidget(note)
-        self.preview=QtWidgets.QTableWidget(0,2);self.preview.setHorizontalHeaderLabels(['Page 1 — source choices','Page 2 — additional donor choices'])
+        self.preview=QtWidgets.QTableWidget(0,2);self.preview.setHorizontalHeaderLabels(['Page 1 — source choices','Page 2 — additional choices'])
         self.preview.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.preview.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers);layout.addWidget(self.preview,1)
-        self.saved=QtWidgets.QLabel();self.saved.setWordWrap(True);layout.addWidget(self.saved)
+        self.saved=QtWidgets.QLabel();saved_font=self.saved.font();saved_font.setBold(True);self.saved.setFont(saved_font);self.saved.setWordWrap(True);layout.addWidget(self.saved)
         actions=QtWidgets.QHBoxLayout();self.save_button=QtWidgets.QPushButton('Save');self.refresh_button=QtWidgets.QPushButton('Refresh')
         for button in (self.save_button,self.refresh_button):button.setStyleSheet(GREEN);actions.addWidget(button)
         actions.addStretch();layout.addLayout(actions)
@@ -74,6 +75,8 @@ class TransferEvolutionLinesTab(QtWidgets.QWidget):
             transfer.check_layout(normalized)
             self.lines=core.read_source_lines(normalized)[0]
             self.records=core.read_partner_records(normalized)
+            self.extra_entries=additional.read_state(data)['entries']
+            self.records.extend(core.PartnerRecord(r['key'],tuple(r['words'])) for r in self.extra_entries)
             self.names=read_names(self.path)
             self.data=data;self.digest=hashlib.sha256(data).hexdigest();self.mappings=mappings
             self.source.clear()
@@ -87,7 +90,7 @@ class TransferEvolutionLinesTab(QtWidgets.QWidget):
 
     def source_changed(self,*_):
         if self.loading or self.data is None:return
-        self.loading=True;source=self.source.currentData();self.donor.clear();self.donor.addItem('No transfer — remove second page',None)
+        self.loading=True;source=self.source.currentData();self.donor.clear();self.donor.addItem('No donor line — keep added partners',None)
         for line in range(7):
             if line!=source:self.donor.addItem(self.line_label(line),line)
         target=self.mappings.get(source);index=self.donor.findData(target);self.donor.setCurrentIndex(max(index,0));self.loading=False;self.update_preview()
@@ -95,15 +98,22 @@ class TransferEvolutionLinesTab(QtWidgets.QWidget):
     def update_preview(self,*_):
         if self.loading or self.data is None:return
         source=self.source.currentData();donor=self.donor.currentData();self.save_button.setEnabled(False)
-        host=[i for i in self.lines[source] if self.records[i].stage>0];extra=[]
+        host=[i for i in self.lines[source] if self.records[i].stage>0];choices=[host]
         try:
-            if donor is not None:host,extra=transfer.derive_pages(self.data,{source:donor},self.lines)[source]
-            self.status.setText(f'{len(host)} source choices + {len(extra)} additional choices. Save applies this source’s setting immediately.')
+            mappings=dict(self.mappings)
+            if donor is None:mappings.pop(source,None)
+            else:mappings[source]=donor
+            slots=additional.read_state(self.data).get('slots')
+            pages=additional.derive_pages(self.data,self.extra_entries,mappings,self.lines,slots)
+            if source in pages:choices=pages[source]
+            self.status.setText(f'{len(choices)} battle page(s). Save applies this source’s setting immediately.')
             self.save_button.setEnabled(True)
         except Exception as ex:self.status.setText(str(ex))
-        self.preview.setRowCount(max(len(host),len(extra)))
+        self.preview.setColumnCount(len(choices))
+        self.preview.setHorizontalHeaderLabels([f'Battle page {i+1}' for i in range(len(choices))])
+        self.preview.setRowCount(max(map(len,choices)))
         for row in range(self.preview.rowCount()):
-            for col,values in enumerate((host,extra)):
+            for col,values in enumerate(choices):
                 self.preview.setItem(row,col,QtWidgets.QTableWidgetItem(self.name(values[row]) if row<len(values) else ''))
 
     def save(self):

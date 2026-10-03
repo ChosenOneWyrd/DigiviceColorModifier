@@ -1,3 +1,5 @@
+import hashlib
+from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 import os
 import shutil
@@ -478,6 +480,7 @@ class PartnerTableTab(QtWidgets.QWidget):
     # ---------------- table population ----------------
 
     def populate_table_from_csv(self, csv_path):
+        if not self.is_digivice() and not self.is_d_ark():self.loaded_bin_digest=hashlib.sha256(Path(self.current_bin_path).read_bytes()).hexdigest()
         with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
 
@@ -520,10 +523,10 @@ class PartnerTableTab(QtWidgets.QWidget):
         for r_idx, row in enumerate(display_rows):
             csv_idx = display_order[r_idx]
             self.partner_ui_to_csv_index[r_idx] = csv_idx
-            self.table.setVerticalHeaderItem(r_idx, QtWidgets.QTableWidgetItem(str(csv_idx + 1)))
+            self.table.setVerticalHeaderItem(r_idx, QtWidgets.QTableWidgetItem(f"extra_{csv_idx-37}" if csv_idx>=38 else str(csv_idx + 1)))
 
             self.table.setCellWidget(r_idx, 0, self.make_spin(row.get("digimon_id", 0)))
-            self.partner_hidden_rows[r_idx] = {"special_unlock": str(row.get("special_unlock", "0"))}
+            self.partner_hidden_rows[r_idx] = {"special_unlock": str(row.get("special_unlock", "0")), "meta_offset":row.get("meta_offset",""), "data_offset":row.get("data_offset","")}
             self.table.setCellWidget(r_idx, 1, self.make_combo(self.name_map, row.get("string_index", "")))
             self.table.setCellWidget(r_idx, 2, self.make_spin(row.get("stage", 0)))
             self.table.setCellWidget(r_idx, 3, self.make_combo(self.jogress_map, row.get("jogress_win_partner_id", "")))
@@ -807,8 +810,8 @@ class PartnerTableTab(QtWidgets.QWidget):
         for r in range(self.table.rowCount()):
             hidden = self.partner_hidden_rows.get(r, {})
             row = {
-                "meta_offset": "",
-                "data_offset": "",
+                "meta_offset": hidden.get("meta_offset", ""),
+                "data_offset": hidden.get("data_offset", ""),
                 "digimon_id": self.table.cellWidget(r, 0).value(),
                 "string_index": self.table.cellWidget(r, 1).currentData(),
                 "stage": self.table.cellWidget(r, 2).value(),
@@ -899,9 +902,11 @@ class PartnerTableTab(QtWidgets.QWidget):
 
         dlg = BusyDialog("Import Partner Table", "Please wait...\nApplying partner table changes to BIN.", self)
 
+        extra_args=['--expected-sha256',self.loaded_bin_digest] if cleanup_dir and not self.is_digivice() and not self.is_d_ark() and getattr(self,'loaded_bin_digest',None) else []
+
         worker = InternalScriptWorker(
             script_name=script,
-            script_args=[self.current_bin_path, csv_path, self.current_bin_path],
+            script_args=[self.current_bin_path, csv_path, self.current_bin_path]+extra_args,
             desc="Import Partner Table",
         )
 

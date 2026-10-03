@@ -1,3 +1,5 @@
+import hashlib
+from pathlib import Path
 #!/usr/bin/env python3
 """
 Evolution Slots tab for Digimon BIN Tool.
@@ -101,6 +103,8 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         # GUI reject a line with more than the selector's 9 active choices
         # before the backend importer is launched.
         self.d3_record_stages = {}
+        self.d3_partner_count = 38
+        self.slot_columns = list(SLOT_COLUMNS)
 
         # Per-row fields not shown in editable widgets, e.g. D-Ark line_offset.
         self.hidden_rows = {}
@@ -189,19 +193,22 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         main_layout.addWidget(io_box)
 
         hint = QtWidgets.QLabel(
-            "Each D-3 slot dropdown shows the current Digimon name, physical "
-            "Partner record, and logical Link ID. It stores the physical record. "
+            "Each D-3 slot dropdown shows the current Digimon name, original or added "
+            "Partner record, and shared Link ID. Added records are labelled extra_N. "
             "Choose '-' for a blank slot. Non-empty slots must remain contiguous "
             "from slot_1. For D-3, this order is used by both the Digivolution "
-            "Viewer and battle selector. Every physical record must appear at "
+            "Viewer and each battle page. Every original record must appear at "
             "least once. A record may appear twice only in Vmon+Wormmon, "
             "Hawkmon+Tailmon, or Armadimon+Patamon; deleting one occurrence "
-            "sacrifices that extra Jogress membership safely. Each line may "
-            "contain at most 9 records whose current stage is greater than 0."
+            "sacrifices that extra Jogress membership safely. "
+            "Added partners continue onto further battle pages. Added records must appear exactly once. Manage their deletion in Additional Partners."
         )
         hint.setWordWrap(True)
         main_layout.addWidget(hint)
 
+        self.slot_page = QtWidgets.QComboBox()
+        self.slot_page.currentIndexChanged.connect(self.show_slot_page)
+        main_layout.addWidget(self.slot_page)
         self.table = QtWidgets.QTableWidget()
         self.table.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -276,7 +283,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         return os.path.join(os.path.expanduser("~"), "Desktop", filename)
 
     def expected_partner_ids(self):
-        return range(38) if self.is_d3() else range(21)
+        return range(self.d3_partner_count) if self.is_d3() else range(21)
 
     def expected_line_count(self):
         return 7 if self.is_d3() else 5
@@ -315,6 +322,8 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
 
         self.digimon_names = {}
         self.d3_record_stages = {}
+        self.d3_partner_count = 38
+        self.slot_columns = list(SLOT_COLUMNS)
         self.hidden_rows = {}
         self._table_loaded = False
         self.table.clear()
@@ -418,6 +427,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
             d3_stages = {}
             with open(partner_csv, "r", encoding="utf-8-sig", newline="") as f:
                 partner_rows = list(csv.DictReader(f))
+                if self.is_d3():self.d3_partner_count=len(partner_rows)
 
                 for physical_index, row in enumerate(partner_rows):
                     digimon_text = str(row.get("digimon_id", "")).strip()
@@ -458,7 +468,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                         except Exception:
                             link_id = "?"
                         result[digimon_id] = (
-                            f"{name} [record {digimon_id}; Link ID {link_id}]"
+                            f"{name} [{'extra_'+str(digimon_id-37) if digimon_id>=38 else 'record '+str(digimon_id)}; Link ID {link_id}]"
                         )
                     else:
                         result[digimon_id] = name
@@ -524,6 +534,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
         return item
 
     def populate_table_from_csv(self, csv_path):
+        if self.is_d3():self.loaded_bin_digest=hashlib.sha256(Path(self.current_bin_path).read_bytes()).hexdigest()
         with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
 
@@ -534,10 +545,17 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 f"rows for the selected device; found {len(rows)}."
             )
 
+        self.slot_columns=[k for k in rows[0] if k.startswith('slot_')]
+
         # Ensure the selected BIN's current names are what the combos display.
         self.digimon_names = self.build_digimon_name_map_from_bin()
 
-        headers = ["line_id", "line_name"] + SLOT_COLUMNS
+        self.slot_page.blockSignals(True)
+        self.slot_page.clear()
+        for start in range(0,len(self.slot_columns),10):
+            self.slot_page.addItem(f"Slots page {start//10+1}: slot_{start+1} – slot_{min(start+10,len(self.slot_columns))}")
+        self.slot_page.blockSignals(False)
+        headers = ["line_id", "line_name"] + self.slot_columns
 
         self._populating = True
         try:
@@ -592,7 +610,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 else:
                     self.hidden_rows[r_idx] = {}
 
-                for slot_index, slot_name in enumerate(SLOT_COLUMNS, start=2):
+                for slot_index, slot_name in enumerate(self.slot_columns, start=2):
                     self.table.setCellWidget(
                         r_idx,
                         slot_index,
@@ -610,13 +628,14 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
             header = self.table.horizontalHeader()
             header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
 
+            self.show_slot_page()
             self.table.setColumnWidth(0, 80)
             self.table.setColumnWidth(1, 160)
             header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Fixed)
             header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Fixed)
 
             # Make every dropdown wide enough for typical partner names.
-            for col in range(2, 12):
+            for col in range(2, 2+len(self.slot_columns)):
                 self.table.setColumnWidth(col, max(150, self.table.columnWidth(col)))
 
             self._table_loaded = True
@@ -668,7 +687,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 )
 
             hit_blank = False
-            for i, slot_name in enumerate(SLOT_COLUMNS, start=2):
+            for i, slot_name in enumerate(self.slot_columns, start=2):
                 combo = self.table.cellWidget(r, i)
                 if combo is None:
                     raise RuntimeError(
@@ -700,7 +719,7 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
             line_id = int(row["line_id"])
             nonempty = 0
 
-            for slot_name in SLOT_COLUMNS:
+            for slot_name in self.slot_columns:
                 value = row.get(slot_name, "")
                 if value == "":
                     continue
@@ -779,32 +798,29 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
                 f"{detail}. Use one line, or one supported shared pair."
             )
 
-        total = sum(len(v) for v in occurrences.values())
+        added_ids=set(self.expected_partner_ids())-set(range(38))
+        for key in added_ids:
+            if len(occurrences.get(key,[]))!=1:
+                raise RuntimeError(f'{self.digimon_names.get(key,key)} must appear exactly once. Move it to another line, or remove it through Additional Partners.')
+        unknown=set(occurrences)-set(self.expected_partner_ids())
+        if unknown:raise RuntimeError(f'Unknown Partner keys: {sorted(unknown)}')
+        total = sum(len(v) for k,v in occurrences.items() if k<38)
         if total > 44:
             raise RuntimeError(
                 f"D-3 has capacity for at most 44 complete-line occurrences; "
                 f"found {total}."
             )
 
-        for row in rows:
-            active = sum(
-                1
-                for slot_name in SLOT_COLUMNS
-                if row.get(slot_name, "") != ""
-                and self.d3_record_stages.get(int(row[slot_name]), 0) > 0
-            )
-            if active > 9:
-                raise RuntimeError(
-                    f"{row['line_name']} has {active} active battle choices. "
-                    "The D-3 map selector can safely hold at most 9; move or "
-                    "deactivate at least one stage > 0 record."
-                )
+    def show_slot_page(self, *_):
+        page=max(0,self.slot_page.currentIndex())
+        for index in range(len(self.slot_columns)):
+            self.table.setColumnHidden(index+2,index//10 != page)
 
     def write_rows_to_csv(self, rows, path):
         if self.is_d3():
-            fieldnames = ["line_id", "line_name"] + SLOT_COLUMNS
+            fieldnames = ["line_id", "line_name"] + self.slot_columns
         else:
-            fieldnames = ["line_id", "line_name", "line_offset"] + SLOT_COLUMNS
+            fieldnames = ["line_id", "line_name", "line_offset"] + self.slot_columns
 
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
@@ -1104,13 +1120,15 @@ class EvolutionSlotsTab(QtWidgets.QWidget):
             self,
         )
 
+        extra_args=['--expected-sha256',self.loaded_bin_digest] if cleanup_dir and self.is_d3() and getattr(self,'loaded_bin_digest',None) else []
+
         worker = InternalScriptWorker(
             script_name=script,
             script_args=[
                 self.current_bin_path,
                 csv_path,
                 self.current_bin_path,
-            ],
+            ]+extra_args,
             desc="Apply Evolution Slots",
         )
 

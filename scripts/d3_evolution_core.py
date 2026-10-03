@@ -1537,6 +1537,14 @@ def changed_ranges(before: bytes, after: bytes) -> list[tuple[int, int]]:
 
 def synchronize_existing_bin(data, requested_lines=None):
     """Synchronize on a copy and rebuild authenticated transfer pages last."""
+    import d3_additional_partners as additional
+    if additional.detected(data):
+        state = additional.read_state(data)
+        work = bytearray(data)
+        result = _synchronize_existing_bin_without_transfers(work, requested_lines)
+        additional.rebuild(work, result[0], state)
+        data[:] = work
+        return result
     from d3_transfer_evolution_lines import read_state, is_probe_c, strip_probe_c, install_into
     mappings = read_state(data)
     work = bytearray(data)

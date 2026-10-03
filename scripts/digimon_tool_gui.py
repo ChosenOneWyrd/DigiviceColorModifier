@@ -18,6 +18,7 @@ from cards_in_inventory_tab import CardsInInventoryTab
 from replace_evolution_images_tab import ReplaceEvolutionImagesTab
 from evolution_slots_tab import EvolutionSlotsTab
 from transfer_evolution_lines_tab import TransferEvolutionLinesTab
+from additional_partners_tab import AdditionalPartnersTab
 from replace_evolution_sounds_tab import ReplaceEvolutionSoundsTab
 
 # ----------------- Main Window + Dark Palette -----------------
@@ -104,6 +105,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_areas_tab = MapAreasTab(self)
         self.evolution_slots_tab = EvolutionSlotsTab(self)
         self.transfer_evolution_lines_tab = TransferEvolutionLinesTab(self)
+        self.additional_partners_tab = AdditionalPartnersTab(self)
         self.replace_evolution_images_tab = ReplaceEvolutionImagesTab(self)
         self.replace_evolution_sounds_tab = ReplaceEvolutionSoundsTab(self)
         self.sounds_tab = SoundsTab(self)
@@ -119,6 +121,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs.addTab(self.map_areas_tab, "Map Areas")
         tabs.addTab(self.evolution_slots_tab, "Evolution Slots")
         tabs.addTab(self.transfer_evolution_lines_tab, "Transfer Evolution Lines")
+        tabs.addTab(self.additional_partners_tab, "Additional Partners")
         tabs.addTab(self.replace_evolution_images_tab, "Replace Evolution Images")
         tabs.addTab(self.replace_evolution_sounds_tab, "Replace Evolution Sounds")
         tabs.addTab(self.sounds_tab, "Sounds")
